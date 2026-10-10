@@ -80,8 +80,17 @@ pelo compilador: são strings válidas e o typecheck passa.
   o app abre no Android (Expo Go). Isso prova que as 12 tabelas e 19 índices
   aplicaram, que o journal do Drizzle registrou a migração, que a semente
   inseriu perfil, 10 categorias e a conta inicial, e que os tokens resolvem
-  em tela. Não prova ainda: escrever lançamento, a `MoneyInput` no Android,
-  o cálculo de saldo e a agregação do relatório.
+  em tela.
+
+  **Fatia vertical validada no mesmo dia:** lançar despesa, ver na lista
+  agrupada por dia, o saldo e o total do mês mudarem no Início, e a despesa
+  aparecer nas barras e na lista por categoria do relatório. A `MoneyInput`
+  se comportou no Android, inclusive o backspace — era o ponto de maior
+  desconfiança, porque o `onKeyPress` não é confiável no teclado numérico e
+  a entrada de dígito foi tratada por `onChangeText`.
+
+  **O M0 está cumprido.** O criterio era o F02 funcionando num aparelho, não
+  o bundle compilando.
 
   Duas falhas de migração precederam isso, ambas no índice de `budgets`, e
   **nenhuma aparecia no typecheck nem no bundle**. Ver o commit `125bf03`.
@@ -93,9 +102,16 @@ pelo compilador: são strings válidas e o typecheck passa.
   `replica-diff` não terá comparação visual — nem teria referência, já que
   `replica/screens/` também está vazio desde o recon.
 - **Os cálculos de saldo e de agregação não têm teste.** `accountBalances` e
-  `expensesByCategory` são as duas funções onde um erro de sinal passa
-  despercebido e aparece como "o app está errado". Merecem teste de unidade
-  com banco em memória antes de qualquer tela nova.
+  `expensesByCategory` funcionaram para **um** lançamento num aparelho, o que
+  não é a mesma coisa que estarem corretos. Sem cobertura: transferência entre
+  contas (onde o valor sai de uma e entra na outra, e um erro de sinal dobra
+  dinheiro), lançamento não pago (que não deve contar no saldo), mais de uma
+  conta, e despesa sem categoria.
+
+  É a lacuna número um, e é barata de fechar: a redução de saldo que soma as
+  linhas agrupadas é JavaScript puro e pode ser extraída de
+  `accountBalances` para uma função testável com linhas fabricadas, sem
+  precisar de banco. A agregação em si é SQL e cai no `db:check`.
 - **Teclado, leitor de tela e tela de 320pt.** Especificados em
   `components.md`, não exercitados.
 
