@@ -212,11 +212,28 @@ export const budgets = sqliteTable(
     ...stamps(),
   },
   (t) => [
-    uniqueIndex('budgets_cat_mes_unico').on(
-      t.userId,
-      t.categoryId,
-      sql`coalesce(${t.mesReferencia}, '1900-01-01')`,
-    ),
+    /** Dois índices parciais em vez de um com `coalesce`.
+     *
+     *  A intenção é: um limite por categoria por mês, e no máximo um limite
+     *  recorrente (mes_referencia nulo) por categoria. Um índice único simples
+     *  sobre (user, category, mes_referencia) NÃO resolve, porque o SQLite
+     *  considera NULLs distintos entre si e aceitaria dois recorrentes.
+     *
+     *  A primeira tentativa foi `coalesce(mes_referencia, '1900-01-01')` dentro
+     *  do índice. O Drizzle não aceita expressão ali: ele trata o `sql` como
+     *  nome de coluna, envolve em backticks e quebra na vírgula interna,
+     *  gerando SQL inválido que o SQLite recusa em tempo de migração.
+     *  Índice parcial expressa a mesma regra e é SQL que os dois entendem. */
+    /** O nome da coluna vai LITERAL no `sql`, sem interpolar `t.mesReferencia`.
+     *  Interpolando, o Drizzle emite `"budgets"."mes_referencia"`, e em
+     *  CREATE INDEX o SQLite aceita apenas referência não qualificada — o
+     *  nome com tabela resulta em `no such column`. */
+    uniqueIndex('budgets_cat_mes_unico')
+      .on(t.userId, t.categoryId, t.mesReferencia)
+      .where(sql`"mes_referencia" is not null`),
+    uniqueIndex('budgets_cat_recorrente_unico')
+      .on(t.userId, t.categoryId)
+      .where(sql`"mes_referencia" is null`),
   ],
 );
 

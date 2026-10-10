@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a74af4b5-de27-4e00-9437-3ec6f014b295",
+  "id": "6ca04aff-8526-4504-bb48-4c25c2e75b29",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "accounts": {
@@ -327,9 +327,19 @@
           "columns": [
             "user_id",
             "category_id",
-            "coalesce(\"mes_referencia\", '1900-01-01')"
+            "mes_referencia"
           ],
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"mes_referencia\" is not null"
+        },
+        "budgets_cat_recorrente_unico": {
+          "name": "budgets_cat_recorrente_unico",
+          "columns": [
+            "user_id",
+            "category_id"
+          ],
+          "isUnique": true,
+          "where": "\"mes_referencia\" is null"
         }
       },
       "foreignKeys": {
@@ -1378,14 +1388,6 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {
-      "budgets_cat_mes_unico": {
-        "columns": {
-          "coalesce(\"mes_referencia\", '1900-01-01')": {
-            "isExpression": true
-          }
-        }
-      }
-    }
+    "indexes": {}
   }
 }

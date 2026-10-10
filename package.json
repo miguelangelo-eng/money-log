@@ -49,7 +49,9 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx --test src/lib/*.test.ts",
-    "db:generate": "drizzle-kit generate --dialect sqlite --schema ./src/db/schema.ts --out ./drizzle"
+    "db:generate": "drizzle-kit generate --dialect sqlite --schema ./src/db/schema.ts --out ./drizzle",
+    "db:check": "node scripts/check-migration.mjs",
+    "verify": "npm run typecheck && npm test && npm run db:check"
   },
   "private": true
 }

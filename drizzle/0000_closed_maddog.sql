@@ -46,7 +46,8 @@ CREATE TABLE `budgets` (
 	FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `budgets_cat_mes_unico` ON `budgets` (`user_id`,`category_id`,`coalesce("mes_referencia"`,` '1900-01-01')`);--> statement-breakpoint
+CREATE UNIQUE INDEX `budgets_cat_mes_unico` ON `budgets` (`user_id`,`category_id`,`mes_referencia`) WHERE "mes_referencia" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX `budgets_cat_recorrente_unico` ON `budgets` (`user_id`,`category_id`) WHERE "mes_referencia" is null;--> statement-breakpoint
 CREATE TABLE `categories` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
