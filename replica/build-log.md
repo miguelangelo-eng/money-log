@@ -117,7 +117,14 @@ pelo compilador: são strings válidas e o typecheck passa.
   dinheiro), lançamento não pago (que não deve contar no saldo), mais de uma
   conta, e despesa sem categoria.
 
-  É a lacuna número um, e é barata de fechar: a redução de saldo que soma as
+  **Fechada em 2026-10-10:** a regra de saldo foi para `src/lib/balance.ts`
+  (função pura) com 13 testes cobrindo transferência que conserva dinheiro,
+  não-pago, múltiplas contas, cartão sem conta e saldo negativo. A consulta
+  só agrega. `verify` passa com 37 testes.
+
+  Registro do caminho antigo, para não se repetir: a regra estava dentro da
+  consulta e do laço, e não tinha teste. Era a lacuna número um, e foi barata
+  de fechar: a redução de saldo que soma as
   linhas agrupadas é JavaScript puro e pode ser extraída de
   `accountBalances` para uma função testável com linhas fabricadas, sem
   precisar de banco. A agregação em si é SQL e cai no `db:check`.

@@ -21,6 +21,7 @@ import {
   type Transaction,
 } from '@/db/schema';
 import { clampDay, daysInMonth, monthStart, parse, today } from '@/lib/civil-date';
+import { saldoDaConta, type LinhaAgregada } from '@/lib/balance';
 import type { Cents } from '@/lib/money';
 
 /** Id gerado no cliente, sempre. É o que torna o push do sync idempotente:
@@ -233,36 +234,36 @@ export async function accountBalances(
   userId = LOCAL_USER_ID,
 ): Promise<Array<Account & { saldoCents: Cents }>> {
   const contas = await listAccounts(userId);
+  // Só agrega; a regra de sinal e de "pago" mora em src/lib/balance.ts.
   const rows = await db
     .select({
       accountId: transactions.accountId,
-      transferTo: transactions.transferAccountId,
+      transferAccountId: transactions.transferAccountId,
       kind: transactions.kind,
+      pago: transactions.pago,
       total: sql<number>`coalesce(sum(${transactions.amountCents}), 0)`,
     })
     .from(transactions)
-    .where(
-      and(
-        eq(transactions.userId, userId),
-        isNull(transactions.deletedAt),
-        eq(transactions.pago, true),
-      ),
-    )
-    .groupBy(transactions.accountId, transactions.transferAccountId, transactions.kind);
+    .where(and(eq(transactions.userId, userId), isNull(transactions.deletedAt)))
+    .groupBy(
+      transactions.accountId,
+      transactions.transferAccountId,
+      transactions.kind,
+      transactions.pago,
+    );
 
-  return contas.map((c) => {
-    let saldo = c.saldoInicialCents;
-    for (const r of rows) {
-      const total = Number(r.total);
-      if (r.accountId === c.id) {
-        if (r.kind === 'receita') saldo += total;
-        if (r.kind === 'despesa') saldo -= total;
-        if (r.kind === 'transferencia') saldo -= total;
-      }
-      if (r.transferTo === c.id && r.kind === 'transferencia') saldo += total;
-    }
-    return { ...c, saldoCents: saldo };
-  });
+  const linhas: LinhaAgregada[] = rows.map((r) => ({
+    accountId: r.accountId,
+    transferAccountId: r.transferAccountId,
+    kind: r.kind,
+    pago: Boolean(r.pago),
+    total: Number(r.total),
+  }));
+
+  return contas.map((c) => ({
+    ...c,
+    saldoCents: saldoDaConta(c.id, c.saldoInicialCents, linhas),
+  }));
 }
 
 // ---------------------------------------------------------------------------
