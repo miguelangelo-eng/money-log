@@ -59,6 +59,15 @@ encontradas por `expo export` e nenhuma por typecheck:
 São três peças que só funcionam juntas, e nenhuma delas aparece no typecheck.
 É o argumento concreto para bundlar antes de declarar qualquer coisa pronta.
 
+**Aba escondida não é tela de pilha.** A tela `novo` era um `Tabs.Screen` com
+`href: null`, o que a tira da barra mas a mantém **aba** — e navegar para uma
+aba troca de aba em vez de empilhar, então `router.back()` não tinha o que
+desempilhar (`GO_BACK was not handled by any navigator`). O comentário no
+próprio código dizia "`novo` não é aba: é um fluxo que começa e termina", e a
+implementação fazia o oposto. Corrigido movendo as abas para o grupo `(tabs)`
+e deixando a raiz como `Stack`, com `novo` apresentado como modal. Só aparece
+rodando: typecheck e bundle passavam. Commit `c7ca5ac`.
+
 **Escape Unicode em JSX.** Escrevi `label="‹"` nas setas do seletor de mês
 e `Carregando…` como texto de elemento. Em JSX, nem atributo string nem
 texto de elemento processam escape — os dois teriam renderizado os caracteres
