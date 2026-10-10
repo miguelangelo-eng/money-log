@@ -1,0 +1,17 @@
+{
+  "//": "Config separada para os testes. O tsconfig.json do app herda do Expo, que usa customConditions ['react-native'] — com isso 'node:test' nao resolve, e esta correto: no bundle do React Native builtin do Node nao existe. Os testes rodam em Node, entao precisam da sua propria resolucao.",
+  "compilerOptions": {
+    "strict": true,
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src/lib/**/*.ts"],
+  "exclude": ["node_modules"]
+}

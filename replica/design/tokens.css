@@ -1,0 +1,94 @@
+/* Tokens como custom properties. Consumido pelo NativeWind v4 no Expo.
+ * Fonte da verdade: tokens.json. Este arquivo é derivado — ao mudar uma cor,
+ * mude no JSON, rode `python contrast.py replica/design/tokens.json` e só
+ * então reflita aqui.
+ *
+ * ATENÇÃO (NativeWind v4): valor hex em custom property NÃO funciona com
+ * modificador de opacidade (`bg-surface/50` não resolve). Onde precisar de
+ * transparência, use os tokens --alpha-* explícitos abaixo, nunca o
+ * modificador. É a pegadinha que faz um overlay sumir só no build de produção.
+ */
+
+:root {
+  --bg:              #f9f9f7;
+  --surface:         #fcfcfb;
+  --surface-sunken:  #f0efec;
+  --border:          #e1e0d9;
+  --border-input:    #6f6e67;
+  --text:            #0b0b0b;
+  --text-muted:      #52514e;
+  --text-axis:       #5f5e58;
+  --accent:          #1c5cab;
+  --on-accent:       #ffffff;
+  --danger:          #b32626;
+  --success:         #006300;
+  --warning-ink:     #6b4800;
+
+  /* preenchimentos de status: sempre com ícone + rótulo, nunca cor sozinha */
+  --fill-danger:     #d03b3b;
+  --fill-warning:    #fab219;
+  --fill-success:    #0ca30c;
+
+  /* gráfico */
+  --chart-surface:   #fcfcfb;
+  --chart-gridline:  #e1e0d9;
+  --polar-receita:   #2a78d6;
+  --polar-despesa:   #e34948;
+  --polar-zero:      #f0efec;
+
+  /* 8 slots categóricos, ordem FIXA. Nunca ciclar, nunca gerar o 9º. */
+  --cat-1: #2a78d6;
+  --cat-2: #eb6834;
+  --cat-3: #1baf7a;
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
+  --cat-6: #008300;
+  --cat-7: #4a3aa7;
+  --cat-8: #e34948;
+
+  /* alfa explícito */
+  --alpha-scrim:   rgba(11, 11, 11, 0.45);
+  --alpha-press:   rgba(11, 11, 11, 0.06);
+  --alpha-skeleton: rgba(11, 11, 11, 0.08);
+}
+
+.dark:root, :root[data-theme="dark"] {
+  --bg:              #0d0d0d;
+  --surface:         #1a1a19;
+  --surface-sunken:  #242422;
+  --border:          #2c2c2a;
+  --border-input:    #8f8e86;
+  --text:            #ffffff;
+  --text-muted:      #c3c2b7;
+  --text-axis:       #a3a299;
+  --accent:          #6da7ec;
+  --on-accent:       #0b0b0b;
+  --danger:          #f08f8f;
+  --success:         #5cc95c;
+  --warning-ink:     #fab219;
+
+  --fill-danger:     #d03b3b;
+  --fill-warning:    #fab219;
+  --fill-success:    #0ca30c;
+
+  --chart-surface:   #1a1a19;
+  --chart-gridline:  #2c2c2a;
+  --polar-receita:   #3987e5;
+  --polar-despesa:   #e66767;
+  --polar-zero:      #383835;
+
+  /* Passos próprios para o escuro, escolhidos e validados contra a superfície
+   * escura — NÃO é inversão automática do claro. */
+  --cat-1: #3987e5;
+  --cat-2: #d95926;
+  --cat-3: #199e70;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
+  --cat-6: #008300;
+  --cat-7: #9085e9;
+  --cat-8: #e66767;
+
+  --alpha-scrim:    rgba(0, 0, 0, 0.6);
+  --alpha-press:    rgba(255, 255, 255, 0.08);
+  --alpha-skeleton: rgba(255, 255, 255, 0.10);
+}
