@@ -76,10 +76,19 @@ pelo compilador: são strings válidas e o typecheck passa.
 
 ### O que NÃO foi verificado
 
-- **Nada rodou em aparelho nem em emulador.** Não há Android SDK nem
-  emulador nesta máquina. O bundle compilar prova que o grafo de módulos
-  fecha; não prova que a migração aplica, que a semente insere, que o saldo
-  fecha ou que o toque funciona.
+- ~~**Nada rodou em aparelho nem em emulador.**~~ **Resolvido em 2026-10-10:**
+  o app abre no Android (Expo Go). Isso prova que as 12 tabelas e 19 índices
+  aplicaram, que o journal do Drizzle registrou a migração, que a semente
+  inseriu perfil, 10 categorias e a conta inicial, e que os tokens resolvem
+  em tela. Não prova ainda: escrever lançamento, a `MoneyInput` no Android,
+  o cálculo de saldo e a agregação do relatório.
+
+  Duas falhas de migração precederam isso, ambas no índice de `budgets`, e
+  **nenhuma aparecia no typecheck nem no bundle**. Ver o commit `125bf03`.
+  A lição virou portão: `npm run db:check` aplica a migração num SQLite em
+  memória pelo `node:sqlite` — o mesmo motor do aparelho — e verifica 14
+  invariantes. A ferramenta estava disponível desde o início e não foi usada;
+  esse foi o furo real do M0, não o índice em si.
 - **Nenhum screenshot.** `replica/clone-screens/` está vazio, então o
   `replica-diff` não terá comparação visual — nem teria referência, já que
   `replica/screens/` também está vazio desde o recon.
