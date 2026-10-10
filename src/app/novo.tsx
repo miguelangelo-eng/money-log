@@ -33,6 +33,20 @@ export default function Novo() {
   const contas = useAsync(() => listAccounts(), ['contas']);
   const categorias = useAsync(() => listCategories(kind), ['cats', kind]);
 
+  /** Sair da tela sem supor que existe pilha.
+   *
+   *  `router.back()` cru estoura "GO_BACK was not handled by any navigator"
+   *  quando esta é a primeira rota — por exemplo ao abrir o app direto num
+   *  deep link para /novo, ou depois de um reload do Metro em cima desta
+   *  tela. O fallback leva para o Início, que é o destino certo nos dois
+   *  casos. */
+  function sair() {
+    if (router.canGoBack()) router.back();
+    // `/index`, não `/`: com o grupo (tabs), as rotas tipadas do expo-router
+    // geram `/(tabs)/index` e `/index`, e o caminho nu `/` não existe no tipo.
+    else router.replace('/index');
+  }
+
   // Padrão: primeira conta. O usuário só mexe se tiver mais de uma.
   const contaEfetiva = contaId ?? contas.data?.[0]?.id ?? null;
 
@@ -58,7 +72,7 @@ export default function Novo() {
       };
       if (kind === 'despesa') await addExpense(payload);
       else await addIncome(payload);
-      router.back();
+      sair();
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
       setSalvando(false);
@@ -136,7 +150,7 @@ export default function Novo() {
       <Button
         label="Cancelar"
         variant="ghost"
-        onPress={() => router.back()}
+        onPress={sair}
         style={{ marginTop: space[2] }}
       />
     </ScrollView>

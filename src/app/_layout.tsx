@@ -1,6 +1,20 @@
+/** Layout raiz: portão do banco de dados + pilha de navegação.
+ *
+ *  A pilha existe para que `novo` fique FORA das abas. Antes ele era um
+ *  `Tabs.Screen` com `href: null`, o que esconde da barra mas continua sendo
+ *  uma aba — e navegar para uma aba TROCA de aba em vez de empilhar. O
+ *  `router.back()` depois de salvar não tinha o que desempilhar e o
+ *  react-navigation reclamava: "The action 'GO_BACK' was not handled by any
+ *  navigator".
+ *
+ *  Como lançamento é um fluxo que começa e termina, ele é uma tela de pilha
+ *  apresentada como modal. Aí voltar é desempilhar, que é o que a intenção
+ *  sempre foi.
+ */
+
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { Tabs } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 
 import migrations from '../../drizzle/migrations';
@@ -41,7 +55,7 @@ export default function RootLayout() {
           {falha.message}
         </Txt>
         <Txt variant="xs" color="textMuted" style={{ marginTop: space[4] }}>
-          Nenhum dado foi alterado. Reinstalar o app recria o banco.
+          Nenhum dado foi alterado. Limpar os dados do app recria o banco.
         </Txt>
       </View>
     );
@@ -62,21 +76,19 @@ export default function RootLayout() {
   }
 
   return (
-    <Tabs
+    <Stack
       screenOptions={{
         headerStyle: { backgroundColor: t.bg },
         headerTitleStyle: { color: t.text },
+        headerTintColor: t.accent,
         headerShadowVisible: false,
-        tabBarStyle: { backgroundColor: t.surface, borderTopColor: t.border },
-        tabBarActiveTintColor: t.accent,
-        tabBarInactiveTintColor: t.textMuted,
+        contentStyle: { backgroundColor: t.bg },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Início' }} />
-      <Tabs.Screen name="lancamentos" options={{ title: 'Lançamentos' }} />
-      <Tabs.Screen name="relatorios" options={{ title: 'Relatórios' }} />
-      <Tabs.Screen name="design" options={{ title: 'Design' }} />
-      {/* `novo` não é aba: é um fluxo que começa e termina. */}
-      <Tabs.Screen name="novo" options={{ href: null, title: 'Novo lançamento' }} />
-    </Tabs>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="novo"
+        options={{ title: 'Novo lançamento', presentation: 'modal' }}
+      />
+    </Stack>
   );
 }
