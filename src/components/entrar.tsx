@@ -19,6 +19,7 @@ export function Entrar({ temDadosLocais }: { temDadosLocais: boolean }) {
   const [modo, setModo] = useState<'entrar' | 'criar'>('entrar');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [tentou, setTentou] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -34,7 +35,9 @@ export function Entrar({ temDadosLocais }: { temDadosLocais: boolean }) {
     if (!supabase || !emailOk || !senhaOk) return;
     setEnviando(true);
     try {
-      const credencial = { email: email.trim(), password: senha };
+      // E-mail em minúsculas: o Supabase compara assim, e o teclado às vezes
+      // capitaliza a primeira letra.
+      const credencial = { email: email.trim().toLowerCase(), password: senha };
       if (modo === 'entrar') {
         const { error } = await supabase.auth.signInWithPassword(credencial);
         if (error) throw error;
@@ -83,10 +86,19 @@ export function Entrar({ temDadosLocais }: { temDadosLocais: boolean }) {
           label="Senha"
           value={senha}
           onChangeText={setSenha}
-          secureTextEntry
+          secureTextEntry={!mostrarSenha}
           autoCapitalize="none"
           autoComplete={modo === 'entrar' ? 'current-password' : 'new-password'}
           erro={tentou && !senhaOk ? `Pelo menos ${SENHA_MIN} caracteres.` : null}
+        />
+        {/* Com o campo só em bolinhas, um erro de digitação no cadastro ou um
+            preenchimento automático do Android passam despercebidos. */}
+        <Button
+          label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
+          size="sm"
+          variant="secondary"
+          onPress={() => setMostrarSenha(!mostrarSenha)}
+          style={{ alignSelf: 'flex-start', marginBottom: space[3] }}
         />
 
         {erro ? (
