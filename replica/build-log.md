@@ -354,11 +354,45 @@ padrão). Os pontos de risco listados no SETUP passaram como estavam: os dois
 
 ### O que NÃO foi verificado
 
-- **Nada rodou no Supabase de verdade.** O PGlite é Postgres real, mas o
-  `auth` é stub e o PostgREST não está no caminho. O formato que o
-  `supabase.rpc` devolve foi imitado (JSON com instantes em texto), não visto.
-- **Nada do M1 rodou no aparelho**: login, sync em segundo plano, a tela de
-  backup, o `react-native-url-polyfill`.
-- O critério de pronto do M1 — desinstalar, reinstalar, logar e os dados
-  voltarem; e uma conta não ler nada da outra — está provado nos testes, mas
-  não com as duas contas reais.
+- ~~Nada rodou no Supabase de verdade.~~ ~~Nada do M1 rodou no aparelho.~~
+  **Validado em 2026-10-11** — ver a seção seguinte.
+
+## 2026-10-11 — M1 validado, e o app virou APK
+
+Paridade: **55,7 / 100** (era 46,4) · must-haves **16 de 23** (eram 13).
+Cadastro, isolamento, backup e edição offline viraram `yes` na matriz.
+
+**Validado com o Supabase e as duas contas reais:**
+
+- o `schema.sql` rodou no SQL Editor sem erro;
+- cadastro pelo app, e os dados de antes do login subiram;
+- limpar os dados do Expo Go, entrar de novo e tudo voltar;
+- trocar do Expo Go para o APK (banco novo, vazio) e baixar tudo da nuvem;
+- conta da segunda pessoa (criada pelo painel do Supabase), app vazio só com
+  as categorias padrão;
+- teste de isolamento no SQL Editor: logado como ela, 0 lançamentos do outro.
+
+**O que apareceu no caminho:**
+
+- **"Automatically expose new tables" desmarcado**, como o Supabase
+  recomenda na criação do projeto, deixaria o schema sem grant nenhum e o sync
+  em "permission denied". Virou a nota [A]: grants explícitos (select, insert e
+  update para `authenticated`, sem DELETE; nada para `anon`). O stub dos
+  testes passou a imitar esse pior caso: 13 testes falharam antes da correção.
+- **Login falhando com "E-mail ou senha incorretos"** depois de reinstalar.
+  Resolvido redefinindo a senha pelo SQL; causa provável, erro de digitação
+  no cadastro ou preenchimento automático do Android. A tela de entrar ganhou
+  "Mostrar senha" e passou a mandar o e-mail em minúsculas.
+- **O "Connect" do Supabase mostra os nomes do Next.js**
+  (`NEXT_PUBLIC_...`); o app lê `EXPO_PUBLIC_...`.
+
+**APK pelo EAS:** perfil `preview`, identificador `com.miguelangelo.moneylog`,
+projeto `@miguelangelo-eng/money-log`. As variáveis do Supabase ficam no
+ambiente `preview` do EAS, porque o `.env.local` não sobe. A aba Design só
+existe em `__DEV__`. Instalado nos dois celulares.
+
+### O que NÃO foi verificado
+
+- Pagar fatura continua sem ser visto no aparelho (a regra está testada).
+- O sync em segundo plano com as duas pessoas usando no dia a dia: o que foi
+  visto é o primeiro envio e o primeiro download.

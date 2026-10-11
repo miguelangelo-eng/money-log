@@ -60,21 +60,19 @@ mesmo motor do aparelho — com a migração real.
 
 ## Estado (2026-10-11)
 
-**Validado no Android:** M0 (lançar e ver no relatório), M2 (cartão, compra
-parcelada, fatura) e grupo 1 (editar e excluir lançamento, contas, data,
-transferência, categorias). Paridade 46,4/100, must-haves **13 de 23**.
-`npm run verify`: **114 testes**.
+**Validado no Android:** M0, M2 (cartão), grupo 1 e **M1 (login, backup e
+sincronização com o Supabase, com as duas contas reais)**. O app roda como
+**APK** nos dois celulares (seção "App instalável"). Paridade **55,7/100**,
+must-haves **16 de 23**. `npm run verify`: **114 testes**.
 
-**M1 (sync e backup): código pronto, falta o Supabase.** Login, fila de
-alterações, `push_changes`/`pull_changes` e a tela "Backup e conta" estão
-testados de ponta a ponta contra um Postgres real em memória (PGlite), com
-o `schema.sql` inteiro e a RLS. Nada rodou ainda no Supabase nem no aparelho.
+**Não visto no aparelho:** pagar a fatura (a regra está testada).
 
-**Não visto no aparelho:** pagar a fatura (a regra está testada) e todo o M1.
-
-Depois do M1: grupo 2 (recorrência, "excluir só esta parcela", marcar pago ou
-pendente), orçamento por categoria, rosca de gastos (precisa de Skia).
-Lista completa em [`replica/features.csv`](replica/features.csv).
+**Próximo: grupo 2** — despesa fixa recorrente, "esta ocorrência ou a série
+toda", marcar pago ou pendente e parcelado em conta. Depois: orçamento por
+categoria, rosca de gastos (precisa de Skia) e ícone na categoria. Lista
+completa em [`replica/features.csv`](replica/features.csv); `python
+~/.claude/skills/replica-diff/parity.py replica/features.csv` recalcula a
+paridade.
 
 ## Supabase (M1) — passo a passo
 

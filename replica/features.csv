@@ -1,6 +1,6 @@
 feature,area,priority,original,clone,notes
-Cadastro com e-mail e senha,onboarding,must,yes,no,
-Isolamento total dos dados entre os dois usuários,segurança,must,yes,no,cada linha pertence a um user_id e ninguém mais lê — a regra de acesso é o requisito que substituiu o compartilhamento
+Cadastro com e-mail e senha,onboarding,must,yes,yes,"S02 em src/components/entrar.tsx, Supabase Auth; validado no APK"
+Isolamento total dos dados entre os dois usuários,segurança,must,yes,yes,"RLS forçada nas 10 tabelas, dono carimbado pelo token no push_changes, sem DELETE; testado no PGlite e no Supabase com as duas contas reais"
 Criar conta bancária com saldo inicial,contas,must,yes,yes,S08/S09; saldo inicial pode ser negativo (cheque especial)
 Lista de contas com saldo consolidado,contas,must,yes,yes,"S03; saldo = inicial + receitas - despesas +/- transferencias, so o pago"
 Lançar despesa manual,lançamentos,must,yes,yes,S05+S06 em src/app/novo.tsx; data futura vira nao-pago automaticamente
@@ -21,7 +21,7 @@ Pagar fatura debitando uma conta,cartões,must,yes,yes,"tipo proprio pagamento_f
 Relatório de gastos por categoria,relatórios,must,yes,partial,"lista ranqueada pronta; a rosca exige Skia, ainda nao instalado"
 Relatório de receita versus despesa do mês,relatórios,must,yes,yes,"S15, barras com par polar azul-vermelho"
 Limite de gastos por categoria com barra de progresso,orçamento,must,yes,no,"no original aparece como ""Metas"""
-Backup na nuvem e restauração em outro aparelho,sync,must,yes,no,um ano de lançamentos manuais num celular sem backup é perda total se o aparelho quebrar
+Backup na nuvem e restauração em outro aparelho,sync,must,yes,yes,M1: entrar num aparelho vazio baixa tudo; validado trocando do Expo Go para o APK
 Login com Google,onboarding,should,yes,no,
 Importar extrato OFX,import,should,yes,no,substitui a conexão bancária no MVP
 Importar planilha CSV,import,should,yes,no,
@@ -31,7 +31,7 @@ Alerta de conta a vencer,alertas,should,yes,no,
 Alerta de limite de categoria estourado,alertas,should,yes,no,
 Anexar comprovante ao lançamento,lançamentos,should,yes,no,
 Busca e filtro de lançamentos,lançamentos,should,yes,no,
-Edição offline com fila de sincronização,sync,should,no,no,lançar sem sinal no caixa do mercado e sincronizar depois — sem dois editores o conflito é muito mais simples
+Edição offline com fila de sincronização,sync,should,no,yes,"outbox alimentado por triggers do SQLite; sincroniza ao abrir, voltar, sair e a cada 15 s com fila"
 Modo escuro,preferências,should,yes,partial,segue o tema do sistema em todas as telas; falta chave manual
 Subcategorias,categorias,should,yes,no,
 Exportar os próprios dados em CSV,dados,should,yes,no,sem lock-in — oposto do que a crítica da fonte 12 reclama
