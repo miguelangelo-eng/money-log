@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "financas",
-    "slug": "financas",
+    "name": "Money Log",
+    "slug": "money-log",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "financas",
+    "scheme": "moneylog",
     "userInterfaceStyle": "automatic",
     "platforms": [
       "ios",

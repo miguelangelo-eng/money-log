@@ -3,6 +3,9 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 
 import * as schema from './schema';
 
+/** Nome de antes do app virar "Money Log". NÃO renomear: o arquivo já existe
+ *  nos aparelhos, e um nome novo abriria um banco vazio — os lançamentos
+ *  ficariam órfãos no arquivo antigo. */
 export const DB_NAME = 'financas.db';
 
 const sqlite = SQLite.openDatabaseSync(DB_NAME, { enableChangeListener: true });

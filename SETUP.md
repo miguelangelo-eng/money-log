@@ -1,4 +1,4 @@
-# Projeto
+# Money Log
 
 App de controle financeiro pessoal. Expo / React Native, local-first.
 Dois usuários com **finanças totalmente separadas** — tudo escopado por
