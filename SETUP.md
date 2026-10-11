@@ -178,6 +178,49 @@ agora e "Aguardando envio: nada".
   importa. (O mesmo teste roda em todas as tabelas no
   `src/sync/sync.test.ts`, mas lá o `auth` é imitação.)
 
+## App instalável (APK Android, pelo EAS)
+
+Para usar sem o computador e fora da rede de casa. O build roda na nuvem do
+Expo (plano gratuito). iPhone exige conta de desenvolvedor da Apple
+(US$ 99/ano); sem ela, iPhone só pelo Expo Go.
+
+- `eas.json`: perfil `preview` gera APK para instalar direto; `production`
+  gera o `.aab` da Play Store (não usado ainda).
+- Identificador do app: `com.miguelangelo.moneylog` (`app.json`). **Não
+  mudar depois de instalado**: outro identificador é outro app, com banco
+  vazio.
+- A aba "Design" só aparece no Metro (`__DEV__`), não no APK.
+- O `.env.local` não sobe para o EAS (está no `.gitignore`). URL e chave do
+  Supabase ficam nas variáveis do EAS, ambiente `preview`.
+
+Passo a passo (versão do CLI fixa, para o build ser reproduzível):
+
+1. Conta gratuita em expo.dev.
+2. `npx.cmd eas-cli@24.8.0 login`
+3. `npx.cmd eas-cli@24.8.0 init` — liga a pasta a um projeto do Expo e grava
+   o `projectId` no `app.json`.
+4. Variáveis do Supabase no ambiente `preview` (os mesmos valores do
+   `.env.local`):
+
+   ```powershell
+   npx.cmd eas-cli@24.8.0 env:create --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value <url> --visibility plaintext
+   npx.cmd eas-cli@24.8.0 env:create --environment preview --name EXPO_PUBLIC_SUPABASE_KEY --value <publishable key> --visibility plaintext
+   ```
+
+5. `npx.cmd eas-cli@24.8.0 build -p android --profile preview` — na primeira
+   vez, responder **sim** para gerar a keystore (o EAS guarda; ela assina
+   todas as versões futuras). Leva de 10 a 20 minutos.
+6. No fim sai um link e um QR code. Abrir no celular, baixar o APK e
+   instalar (o Android pede para permitir instalar de fontes desconhecidas).
+
+**Trocar do Expo Go para o APK no seu celular:** antes, conferir em "Backup
+e conta" que "Aguardando envio" está em "nada". O APK é outro app, com banco
+próprio e vazio: entra com a mesma conta e baixa tudo da nuvem.
+
+**Mudou o código?** O APK não se atualiza sozinho: é preciso outro build e
+instalar por cima (mesma keystore, os dados ficam). Atualização pelo ar
+(EAS Update) fica para depois.
+
 ## Como o sync funciona
 
 O SQLite do aparelho é a fonte da verdade; o Postgres é réplica e backup.

@@ -12,7 +12,8 @@
       "android"
     ],
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.miguelangelo.moneylog"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +22,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.miguelangelo.moneylog"
     },
     "plugins": [
       "expo-router",
@@ -39,6 +41,13 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ebfed55e-a24a-46fd-b6ec-217ae47d5fe1"
+      }
+    },
+    "owner": "miguelangelo-eng"
   }
 }

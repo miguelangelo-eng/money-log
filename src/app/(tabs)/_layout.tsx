@@ -21,7 +21,9 @@ export default function TabsLayout() {
       <Tabs.Screen name="lancamentos" options={{ title: 'Lançamentos' }} />
       <Tabs.Screen name="cartoes" options={{ title: 'Cartões' }} />
       <Tabs.Screen name="relatorios" options={{ title: 'Relatórios' }} />
-      <Tabs.Screen name="design" options={{ title: 'Design' }} />
+      {/* Vitrine dos componentes, para desenvolvimento. No APK a aba some
+          (href: null); no Metro continua acessível. */}
+      <Tabs.Screen name="design" options={{ title: 'Design', href: __DEV__ ? undefined : null }} />
     </Tabs>
   );
 }
