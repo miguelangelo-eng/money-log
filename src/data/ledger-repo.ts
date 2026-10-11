@@ -14,7 +14,7 @@
  *  RLS do Postgres, aplicada na camada de dados).
  */
 
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import {
   accounts,
@@ -27,8 +27,17 @@ import {
   type Transaction,
 } from '@/db/schema';
 import { saldoDaConta, type LinhaAgregada } from '@/lib/balance';
+import { PARCELAS_MAX } from '@/lib/card';
 import { clampDay, daysInMonth, monthStart, parse, type CivilDate } from '@/lib/civil-date';
-import type { Cents } from '@/lib/money';
+import { splitInstallments, type Cents } from '@/lib/money';
+import {
+  dataDaOcorrencia,
+  horizonte,
+  indiceDaOcorrencia,
+  ocorrenciasAte,
+  tipoDaSerie,
+  type Escopo,
+} from '@/lib/serie';
 
 import type { SyncDb } from './cards';
 
@@ -85,13 +94,22 @@ export interface CategorySlice {
   totalCents: Cents;
 }
 
+/** Como o lançamento se repete. Ver src/lib/serie.ts. */
+export type Repeticao =
+  | { tipo: 'unica' }
+  | { tipo: 'mensal' }
+  | { tipo: 'parcelado'; parcelas: number };
+
 export interface NovaDespesa {
   amountCents: Cents;
   competencia?: CivilDate;
   descricao?: string;
   categoryId?: string | null;
   accountId: string;
+  /** Vale para a primeira ocorrência; as seguintes seguem a data. Omitido,
+   *  segue a data também: futuro é pendente. */
   pago?: boolean;
+  repeticao?: Repeticao;
 }
 
 export interface NovaTransferencia {
@@ -115,8 +133,11 @@ export interface EdicaoLancamento {
 
 export type ResultadoExclusao =
   | { tipo: 'simples' }
-  | { tipo: 'compra'; parcelas: number }
+  | { tipo: 'serie'; removidos: number }
   | { tipo: 'pagamento_desfeito' };
+
+/** Quantas linhas cada escopo atinge, para a tela dizer antes de agir. */
+export type ContagemDeEscopo = Record<Escopo, number>;
 
 function validarValor(v: Cents) {
   if (!Number.isInteger(v) || v <= 0) throw new Error('Informe um valor maior que zero.');
@@ -175,38 +196,186 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
 
   /** Data futura é previsto, não realizado. */
   const pagoPelaData = (competencia: CivilDate) => competencia <= hoje();
+  const maior = (a: CivilDate, b: CivilDate) => (a > b ? a : b);
 
   function inserirSimples(kind: 'despesa' | 'receita', input: NovaDespesa, userId: string): string {
     validarValor(input.amountCents);
     const competencia = input.competencia ?? hoje();
     validarData(competencia);
+    const rep = input.repeticao ?? { tipo: 'unica' };
+    if (
+      rep.tipo === 'parcelado' &&
+      (!Number.isInteger(rep.parcelas) || rep.parcelas < 2 || rep.parcelas > PARCELAS_MAX)
+    ) {
+      throw new Error(`Parcelas: de 2 a ${PARCELAS_MAX}.`);
+    }
+
+    // Uma linha por ocorrência. Parcelado divide o valor (resto nas
+    // primeiras); recorrente repete o valor cheio até o horizonte.
+    const linhas: Array<{ competencia: CivilDate; amountCents: Cents; n: number | null; de: number | null }> =
+      rep.tipo === 'parcelado'
+        ? splitInstallments(input.amountCents, rep.parcelas).map((v, i) => ({
+            competencia: dataDaOcorrencia(competencia, i),
+            amountCents: v,
+            n: i + 1,
+            de: rep.parcelas,
+          }))
+        : rep.tipo === 'mensal'
+          ? ocorrenciasAte(competencia, 0, maior(horizonte(hoje()), competencia)).map((k) => ({
+              competencia: dataDaOcorrencia(competencia, k),
+              amountCents: input.amountCents,
+              n: null,
+              de: null,
+            }))
+          : [{ competencia, amountCents: input.amountCents, n: null, de: null }];
 
     return db.transaction((tx) => {
       contaDoUsuario(tx, input.accountId, userId);
       categoriaValida(tx, input.categoryId, kind, userId);
 
-      const pago = input.pago ?? pagoPelaData(competencia);
+      const seriesId = rep.tipo === 'unica' ? null : newId();
       const ts = nowIso();
-      const id = newId();
-      tx.insert(transactions)
+      const ids: string[] = [];
+      linhas.forEach((l, i) => {
+        const pago = i === 0 && input.pago !== undefined ? input.pago : pagoPelaData(l.competencia);
+        const id = newId();
+        tx.insert(transactions)
+          .values({
+            id,
+            userId,
+            kind,
+            amountCents: l.amountCents,
+            currency: 'BRL',
+            competencia: l.competencia,
+            descricao: (input.descricao ?? '').trim(),
+            categoryId: input.categoryId ?? null,
+            accountId: input.accountId,
+            pago,
+            pagoEm: pago ? (l.competencia <= hoje() ? l.competencia : hoje()) : null,
+            seriesId,
+            parcelaN: l.n,
+            parcelaDe: l.de,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+        ids.push(id);
+      });
+      return ids[0];
+    });
+  }
+
+  /** Todas as linhas da série, INCLUSIVE as excluídas, em ordem de data. As
+   *  excluídas contam: são elas que dizem que a recorrência foi encerrada e
+   *  quais meses já existiram. */
+  function linhasDaSerie(q: Q, seriesId: string, userId: string): Transaction[] {
+    return q
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.seriesId, seriesId), eq(transactions.userId, userId)))
+      .orderBy(transactions.competencia, transactions.parcelaN)
+      .all();
+  }
+
+  /** Cria as ocorrências que faltam de uma recorrência até `ate`, copiando a
+   *  última (valor, categoria, conta, descrição — uma edição "desta e das
+   *  próximas" vale para o que ainda vai ser gerado).
+   *
+   *  Encerrada = a última ocorrência está excluída ("excluir esta e as
+   *  próximas"). Nesse caso não gera nada. */
+  function estenderSerie(q: Q, seriesId: string, ate: CivilDate, userId: string): number {
+    const linhas = linhasDaSerie(q, seriesId, userId);
+    const ultima = linhas[linhas.length - 1];
+    if (!ultima || ultima.deletedAt || ultima.parcelaN !== null) return 0;
+
+    const inicio = linhas[0].competencia;
+    const ks = ocorrenciasAte(inicio, indiceDaOcorrencia(inicio, ultima.competencia) + 1, ate);
+    const ts = nowIso();
+    for (const k of ks) {
+      const competencia = dataDaOcorrencia(inicio, k);
+      const pago = pagoPelaData(competencia);
+      q.insert(transactions)
         .values({
-          id,
+          id: newId(),
           userId,
-          kind,
-          amountCents: input.amountCents,
-          currency: 'BRL',
+          kind: ultima.kind,
+          amountCents: ultima.amountCents,
+          currency: ultima.currency,
           competencia,
-          descricao: (input.descricao ?? '').trim(),
-          categoryId: input.categoryId ?? null,
-          accountId: input.accountId,
+          descricao: ultima.descricao,
+          categoryId: ultima.categoryId,
+          accountId: ultima.accountId,
           pago,
           pagoEm: pago ? competencia : null,
+          seriesId,
           createdAt: ts,
           updatedAt: ts,
         })
         .run();
-      return id;
-    });
+    }
+    return ks.length;
+  }
+
+  /** As linhas que um escopo atinge, só as não excluídas. */
+  function alvos(q: Q, atual: Transaction, escopo: Escopo, userId: string): Transaction[] {
+    if (!atual.seriesId || escopo === 'esta') return [atual];
+    return linhasDaSerie(q, atual.seriesId, userId).filter(
+      (l) => !l.deletedAt && (escopo === 'todas' || l.competencia >= atual.competencia),
+    );
+  }
+
+  /** Aplica uma edição a UMA linha, com as regras do tipo dela. */
+  function editarLinha(q: Q, atual: Transaction, patch: EdicaoLancamento, userId: string) {
+    const mudou = <K extends keyof EdicaoLancamento>(k: K) =>
+      patch[k] !== undefined && patch[k] !== (atual as unknown as Record<string, unknown>)[k];
+
+    if (atual.creditCardId) {
+      if (mudou('amountCents') || mudou('competencia') || mudou('accountId')) {
+        throw new Error(
+          'Valor e data de compra no cartão definem a fatura em que ela caiu. ' +
+            'Para mudar, exclua a compra e lance de novo.',
+        );
+      }
+    }
+
+    const amountCents = patch.amountCents ?? atual.amountCents;
+    const competencia = patch.competencia ?? atual.competencia;
+    validarValor(amountCents);
+    validarData(competencia);
+
+    const set: Partial<Transaction> = {
+      amountCents,
+      competencia,
+      descricao: (patch.descricao ?? atual.descricao).trim(),
+      updatedAt: nowIso(),
+    };
+
+    if (atual.kind === 'transferencia') {
+      const de = patch.accountId ?? atual.accountId!;
+      const para = patch.transferAccountId ?? atual.transferAccountId!;
+      if (de === para) throw new Error('Origem e destino precisam ser contas diferentes.');
+      contaDoUsuario(q, de, userId);
+      contaDoUsuario(q, para, userId);
+      set.accountId = de;
+      set.transferAccountId = para;
+    } else {
+      const categoryId = patch.categoryId !== undefined ? patch.categoryId : atual.categoryId;
+      categoriaValida(q, categoryId, atual.kind as 'despesa' | 'receita', userId);
+      set.categoryId = categoryId;
+      if (!atual.creditCardId) {
+        const conta = patch.accountId ?? atual.accountId!;
+        contaDoUsuario(q, conta, userId);
+        set.accountId = conta;
+      }
+    }
+
+    if (!atual.creditCardId && competencia !== atual.competencia) {
+      const pago = pagoPelaData(competencia);
+      set.pago = pago;
+      set.pagoEm = pago ? competencia : null;
+    }
+
+    q.update(transactions).set(set).where(eq(transactions.id, atual.id)).run();
   }
 
   // --------------------------------------------------------------------- API
@@ -531,7 +700,8 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
       });
     },
 
-    /** Edita um lançamento. O que pode mudar depende do tipo:
+    /** Edita um lançamento — ou vários, numa série. O que pode mudar depende
+     *  do tipo:
      *
      *  - despesa/receita em conta: valor, data, categoria, conta, descrição;
      *  - transferência: valor, data, origem, destino, descrição;
@@ -541,8 +711,18 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
      *    novo;
      *  - pagamento de fatura: nada — desfaz e paga de novo.
      *
+     *  Numa série (parcelado ou recorrente), `escopo` diz quais ocorrências
+     *  mudam: só esta, esta e as próximas, ou todas. A DATA muda uma
+     *  ocorrência por vez e só dentro do mesmo mês: uma série tem uma linha
+     *  por mês, e é isso que permite gerar as próximas sem pular nem repetir.
+     *
      *  Mudar a data recalcula "pago": data futura vira previsto. */
-    async updateTransaction(id: string, patch: EdicaoLancamento, userId = padrao): Promise<void> {
+    async updateTransaction(
+      id: string,
+      patch: EdicaoLancamento,
+      escopo: Escopo = 'esta',
+      userId = padrao,
+    ): Promise<void> {
       db.transaction((tx) => {
         const atual = buscar(tx, id, userId);
         if (!atual) throw new Error('Lançamento não encontrado.');
@@ -551,70 +731,91 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
           throw new Error('Pagamento de fatura não se edita. Desfaça o pagamento e pague de novo.');
         }
 
-        const mudou = <K extends keyof EdicaoLancamento>(k: K) =>
-          patch[k] !== undefined && patch[k] !== (atual as unknown as Record<string, unknown>)[k];
-
-        if (atual.creditCardId) {
-          if (mudou('amountCents') || mudou('competencia') || mudou('accountId')) {
-            throw new Error(
-              'Valor e data de compra no cartão definem a fatura em que ela caiu. ' +
-                'Para mudar, exclua a compra e lance de novo.',
-            );
+        const mudouData = patch.competencia !== undefined && patch.competencia !== atual.competencia;
+        if (mudouData && atual.seriesId) {
+          if (escopo !== 'esta') {
+            throw new Error('A data muda uma ocorrência por vez. Escolha "só esta".');
+          }
+          if (monthStart(patch.competencia!) !== monthStart(atual.competencia)) {
+            throw new Error('Numa série, a data só muda dentro do mesmo mês.');
           }
         }
 
-        const amountCents = patch.amountCents ?? atual.amountCents;
-        const competencia = patch.competencia ?? atual.competencia;
-        validarValor(amountCents);
-        validarData(competencia);
-
-        const set: Partial<Transaction> = {
-          amountCents,
-          competencia,
-          descricao: (patch.descricao ?? atual.descricao).trim(),
-          updatedAt: nowIso(),
-        };
-
-        if (atual.kind === 'transferencia') {
-          const de = patch.accountId ?? atual.accountId!;
-          const para = patch.transferAccountId ?? atual.transferAccountId!;
-          if (de === para) throw new Error('Origem e destino precisam ser contas diferentes.');
-          contaDoUsuario(tx, de, userId);
-          contaDoUsuario(tx, para, userId);
-          set.accountId = de;
-          set.transferAccountId = para;
-        } else {
-          const categoryId = patch.categoryId !== undefined ? patch.categoryId : atual.categoryId;
-          categoriaValida(tx, categoryId, atual.kind, userId);
-          set.categoryId = categoryId;
-          if (!atual.creditCardId) {
-            const conta = patch.accountId ?? atual.accountId!;
-            contaDoUsuario(tx, conta, userId);
-            set.accountId = conta;
-          }
+        for (const linha of alvos(tx, atual, escopo, userId)) {
+          editarLinha(
+            tx,
+            linha,
+            linha.id === atual.id ? patch : { ...patch, competencia: undefined },
+            userId,
+          );
         }
-
-        if (!atual.creditCardId && competencia !== atual.competencia) {
-          const pago = pagoPelaData(competencia);
-          set.pago = pago;
-          set.pagoEm = pago ? competencia : null;
-        }
-
-        tx.update(transactions).set(set).where(eq(transactions.id, atual.id)).run();
       });
     },
 
-    /** Exclui um lançamento (soft delete). Três casos:
+    /** Marca como pago ou pendente. Compra no cartão não tem esse estado (quem
+     *  é paga é a fatura), e pagamento de fatura é sempre pago. */
+    async marcarPago(id: string, pago: boolean, userId = padrao): Promise<void> {
+      db.transaction((tx) => {
+        const atual = buscar(tx, id, userId);
+        if (!atual) throw new Error('Lançamento não encontrado.');
+        if (atual.kind === 'pagamento_fatura' || atual.creditCardId) {
+          throw new Error('Compra no cartão é paga pela fatura, não uma a uma.');
+        }
+        tx.update(transactions)
+          .set({ pago, pagoEm: pago ? hoje() : null, updatedAt: nowIso() })
+          .where(eq(transactions.id, atual.id))
+          .run();
+      });
+    },
+
+    /** Quantas ocorrências cada escopo atinge — para a tela dizer "Excluir as
+     *  9 restantes?" antes de agir. Fora de série, tudo é 1. */
+    async escoposDaSerie(id: string, userId = padrao): Promise<ContagemDeEscopo> {
+      const atual = buscar(db, id, userId);
+      if (!atual) throw new Error('Lançamento não encontrado.');
+      return {
+        esta: 1,
+        proximas: alvos(db, atual, 'proximas', userId).length,
+        todas: alvos(db, atual, 'todas', userId).length,
+      };
+    },
+
+    /** Mantém as recorrências materializadas até o horizonte (12 meses à
+     *  frente). Idempotente: roda a cada abertura do app. Devolve quantas
+     *  ocorrências criou. */
+    async estenderRecorrencias(userId = padrao): Promise<number> {
+      return db.transaction((tx) => {
+        const series = tx
+          .selectDistinct({ seriesId: transactions.seriesId })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.userId, userId),
+              isNotNull(transactions.seriesId),
+              isNull(transactions.parcelaN),
+            ),
+          )
+          .all();
+        const ate = horizonte(hoje());
+        return series.reduce((n, s) => n + estenderSerie(tx, s.seriesId!, ate, userId), 0);
+      });
+    },
+
+    /** Exclui (soft delete). Casos:
      *
-     *  - comum: só ele;
-     *  - compra no cartão: a compra INTEIRA, todas as parcelas. Uma parcela
-     *    solta faria a soma da série deixar de bater com o valor comprado.
-     *    Recusado se alguma parcela estiver em fatura já paga: excluir mudaria
-     *    um valor já quitado;
      *  - pagamento de fatura: desfaz o pagamento — a fatura volta a ficar em
-     *    aberto, na mesma transação.
+     *    aberto, na mesma transação. Escopo não se aplica;
+     *  - série: `escopo` escolhe só esta, esta e as próximas, ou todas.
+     *    "Esta e as próximas" numa recorrência é como ela se encerra;
+     *  - compra no cartão (parcelada ou não): recusado se alguma linha
+     *    atingida estiver em fatura já paga — excluir mudaria um valor já
+     *    quitado.
      */
-    async deleteTransaction(id: string, userId = padrao): Promise<ResultadoExclusao> {
+    async deleteTransaction(
+      id: string,
+      escopo: Escopo = 'esta',
+      userId = padrao,
+    ): Promise<ResultadoExclusao> {
       return db.transaction((tx): ResultadoExclusao => {
         const atual = buscar(tx, id, userId);
         if (!atual) throw new Error('Lançamento não encontrado.');
@@ -636,42 +837,42 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
           return { tipo: 'pagamento_desfeito' };
         }
 
-        if (atual.creditCardId) {
-          const parcelas = atual.seriesId
-            ? tx
-                .select()
-                .from(transactions)
-                .where(
-                  and(
-                    eq(transactions.seriesId, atual.seriesId),
-                    eq(transactions.userId, userId),
-                    isNull(transactions.deletedAt),
-                  ),
-                )
-                .all()
-            : [atual];
+        const linhas = alvos(tx, atual, escopo, userId);
 
-          const faturaIds = [...new Set(parcelas.map((p) => p.invoiceId).filter((x): x is string => !!x))];
-          if (faturaIds.length > 0) {
-            const paga = tx
-              .select({ mes: invoices.mesReferencia })
-              .from(invoices)
-              .where(and(inArray(invoices.id, faturaIds), eq(invoices.status, 'paga')))
-              .get();
-            if (paga) {
-              throw new Error(
-                `A fatura de ${mesPorExtenso(paga.mes)} já foi paga. ` +
-                  'Desfaça o pagamento antes de excluir esta compra.',
-              );
-            }
+        const faturaIds = [
+          ...new Set(linhas.map((l) => l.invoiceId).filter((x): x is string => !!x)),
+        ];
+        if (faturaIds.length > 0) {
+          const paga = tx
+            .select({ mes: invoices.mesReferencia })
+            .from(invoices)
+            .where(and(inArray(invoices.id, faturaIds), eq(invoices.status, 'paga')))
+            .get();
+          if (paga) {
+            throw new Error(
+              `A fatura de ${mesPorExtenso(paga.mes)} já foi paga. ` +
+                'Desfaça o pagamento antes de excluir esta compra.',
+            );
           }
-
-          apagar(parcelas.map((p) => p.id));
-          return { tipo: 'compra', parcelas: parcelas.length };
         }
 
-        apagar([atual.id]);
-        return { tipo: 'simples' };
+        // Excluir SÓ a última ocorrência gerada de uma recorrência não pode
+        // encerrá-la (a regra de encerramento é "a última está excluída").
+        // Gera a seguinte antes; a série continua viva.
+        if (escopo === 'esta' && tipoDaSerie(atual) === 'recorrente') {
+          const todas = linhasDaSerie(tx, atual.seriesId!, userId);
+          if (todas[todas.length - 1].id === atual.id) {
+            const inicio = todas[0].competencia;
+            const proxima = dataDaOcorrencia(
+              inicio,
+              indiceDaOcorrencia(inicio, atual.competencia) + 1,
+            );
+            estenderSerie(tx, atual.seriesId!, proxima, userId);
+          }
+        }
+
+        apagar(linhas.map((l) => l.id));
+        return atual.seriesId ? { tipo: 'serie', removidos: linhas.length } : { tipo: 'simples' };
       });
     },
   };

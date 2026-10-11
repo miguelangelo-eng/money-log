@@ -60,17 +60,21 @@ mesmo motor do aparelho — com a migração real.
 
 ## Estado (2026-10-11)
 
-**Validado no Android:** M0, M2 (cartão), grupo 1 e **M1 (login, backup e
-sincronização com o Supabase, com as duas contas reais)**. O app roda como
-**APK** nos dois celulares (seção "App instalável"). Paridade **55,7/100**,
-must-haves **16 de 23**. `npm run verify`: **114 testes**.
+**Validado no Android:** M0, M2 (cartão), grupo 1 e M1 (login, backup e
+sincronização com o Supabase, com as duas contas reais). O app roda como
+**APK** nos dois celulares (seção "App instalável").
 
-**Não visto no aparelho:** pagar a fatura (a regra está testada).
+**Grupo 2 (séries e pago/pendente): pronto, não visto no aparelho.**
+Recorrente todo mês, parcelado em conta, "só esta / esta e as próximas /
+todas" e marcar pago ou pendente. Paridade **66,7/100**, must-haves
+**20 de 23**. `npm run verify`: **132 testes**.
 
-**Próximo: grupo 2** — despesa fixa recorrente, "esta ocorrência ou a série
-toda", marcar pago ou pendente e parcelado em conta. Depois: orçamento por
-categoria, rosca de gastos (precisa de Skia) e ícone na categoria. Lista
-completa em [`replica/features.csv`](replica/features.csv); `python
+**Não visto no aparelho:** o grupo 2 e pagar a fatura (as regras estão
+testadas).
+
+**Faltam 3 obrigatórios:** orçamento por categoria, rosca de gastos (precisa
+de Skia) e ícone na categoria. Lista completa em
+[`replica/features.csv`](replica/features.csv); `python
 ~/.claude/skills/replica-diff/parity.py replica/features.csv` recalcula a
 paridade.
 

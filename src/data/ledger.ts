@@ -53,6 +53,9 @@ export const {
   addTransfer,
   updateTransaction,
   deleteTransaction,
+  marcarPago,
+  escoposDaSerie,
+  estenderRecorrencias,
 } = ledger;
 
 export const cards = createCardsRepo({ db, newId, nowIso, userId: LOCAL_USER_ID });
@@ -62,6 +65,8 @@ export {
   ROTULO_TIPO_CONTA,
   TIPOS_CONTA,
   type CategorySlice,
+  type ContagemDeEscopo,
+  type Repeticao,
   type EdicaoLancamento,
   type MonthTotals,
   type NovaDespesa,

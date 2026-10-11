@@ -7,6 +7,11 @@
  *  Três tipos: despesa, receita e transferência. Despesa pode ir para conta ou
  *  cartão (com parcelas). Transferência move dinheiro entre duas contas do
  *  próprio usuário e não tem categoria — não é gasto nem entrada.
+ *
+ *  Em conta, despesa e receita podem repetir (todo mês, sem fim) e despesa
+ *  pode ser parcelada; e o status (pago/a pagar) vem da data, mas pode ser
+ *  trocado — o boleto que vence hoje e ainda não foi pago. Tudo com padrão:
+ *  o caminho de 5 toques não ganhou nenhum.
  */
 
 import { useState } from 'react';
@@ -29,10 +34,56 @@ import { useAsync } from '@/data/use-async';
 import { space, useTheme } from '@/design/theme';
 import { PARCELAS_MAX, planoDeCompra } from '@/lib/card';
 import { today } from '@/lib/civil-date';
-import { formatCents } from '@/lib/money';
+import { formatCents, splitInstallments } from '@/lib/money';
 
 type Kind = 'despesa' | 'receita' | 'transferencia';
 type Fonte = 'conta' | 'cartao';
+type Repetir = 'unica' | 'mensal' | 'parcelado';
+
+/** − n + para parcelas. O mesmo controle no cartão e na conta. */
+function SeletorDeParcelas({
+  valor,
+  min,
+  onChange,
+}: {
+  valor: number;
+  min: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <View style={styles.parcelas}>
+      <Button
+        label={'−'}
+        variant="secondary"
+        size="sm"
+        disabled={valor <= min}
+        onPress={() => onChange(Math.max(min, valor - 1))}
+        style={styles.passo}
+      />
+      <Txt variant="lg" style={styles.parcelasRotulo}>
+        {valor === 1 ? 'à vista' : `${valor}x`}
+      </Txt>
+      <Button
+        label="+"
+        variant="secondary"
+        size="sm"
+        disabled={valor >= PARCELAS_MAX}
+        onPress={() => onChange(Math.min(PARCELAS_MAX, valor + 1))}
+        style={styles.passo}
+      />
+    </View>
+  );
+}
+
+/** "3x: R$ 33,34 na primeira, R$ 33,33 nas demais." */
+function textoDasParcelas(valores: number[]): string {
+  const [primeira] = valores;
+  const ultima = valores[valores.length - 1];
+  return (
+    `${valores.length}x: ${formatCents(primeira)}` +
+    (primeira !== ultima ? ` na primeira, ${formatCents(ultima)} nas demais.` : ' cada.')
+  );
+}
 
 const ROTULO_KIND: Record<Kind, string> = {
   despesa: 'Despesa',
@@ -54,6 +105,10 @@ export default function Novo() {
   const [fonte, setFonte] = useState<Fonte>('conta');
   const [cartaoId, setCartaoId] = useState<string | null>(null);
   const [parcelas, setParcelas] = useState(1);
+  const [repetir, setRepetir] = useState<Repetir>('unica');
+  const [parcelasConta, setParcelasConta] = useState(2);
+  /** null = segue a data (futuro é pendente). */
+  const [pagoEscolhido, setPagoEscolhido] = useState<boolean | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -97,6 +152,13 @@ export default function Novo() {
     if (router.canGoBack()) router.back();
     else router.replace('/');
   }
+
+  // Em conta, despesa e receita podem repetir; parcelado só despesa.
+  const emConta = !transferencia && fonteEfetiva === 'conta';
+  const repetirEfetivo: Repetir =
+    !emConta || (repetir === 'parcelado' && kind !== 'despesa') ? 'unica' : repetir;
+  const pagoEfetivo = pagoEscolhido ?? data <= today();
+  const recebe = kind === 'receita';
 
   function trocarTipo(k: Kind) {
     setKind(k);
@@ -149,6 +211,11 @@ export default function Novo() {
           categoryId: categoriaId,
           accountId: contaEfetiva!,
           descricao,
+          pago: pagoEfetivo,
+          repeticao:
+            repetirEfetivo === 'parcelado'
+              ? { tipo: 'parcelado' as const, parcelas: parcelasConta }
+              : { tipo: repetirEfetivo },
         };
         if (kind === 'despesa') await addExpense(payload);
         else await addIncome(payload);
@@ -282,36 +349,11 @@ export default function Novo() {
           ) : null}
 
           <SectionHeader>Parcelas</SectionHeader>
-          <View style={styles.parcelas}>
-            <Button
-              label={'−'}
-              variant="secondary"
-              size="sm"
-              disabled={parcelas <= 1}
-              onPress={() => setParcelas((n) => Math.max(1, n - 1))}
-              style={styles.passo}
-            />
-            <Txt variant="lg" style={styles.parcelasRotulo}>
-              {parcelas === 1 ? 'à vista' : `${parcelas}x`}
-            </Txt>
-            <Button
-              label="+"
-              variant="secondary"
-              size="sm"
-              disabled={parcelas >= PARCELAS_MAX}
-              onPress={() => setParcelas((n) => Math.min(PARCELAS_MAX, n + 1))}
-              style={styles.passo}
-            />
-          </View>
+          <SeletorDeParcelas valor={parcelas} min={1} onChange={setParcelas} />
 
           {plano ? (
             <Txt variant="sm" color="textMuted" style={{ marginTop: space[2] }}>
-              {(parcelas > 1
-                ? `${parcelas}x: ${formatCents(plano[0].amountCents)}` +
-                  (plano[0].amountCents !== plano[plano.length - 1].amountCents
-                    ? ` na primeira, ${formatCents(plano[plano.length - 1].amountCents)} nas demais. `
-                    : ' cada. ')
-                : '') +
+              {(parcelas > 1 ? `${textoDasParcelas(plano.map((x) => x.amountCents))} ` : '') +
                 `Entra na fatura de ${mesCurto(plano[0].fatura.mesReferencia)}, ` +
                 `que vence em ${diaMes(plano[0].fatura.dataVencimento)}.`}
             </Txt>
@@ -329,7 +371,65 @@ export default function Novo() {
         </>
       ) : null}
 
+      {emConta ? (
+        <>
+          <SectionHeader>Repetir</SectionHeader>
+          <View style={styles.linha}>
+            {(
+              [
+                ['unica', 'Uma vez'],
+                ['mensal', 'Todo mês'],
+                ...(kind === 'despesa' ? [['parcelado', 'Parcelado']] : []),
+              ] as Array<[Repetir, string]>
+            ).map(([r, rotulo]) => (
+              <Button
+                key={r}
+                label={rotulo}
+                size="sm"
+                variant={repetirEfetivo === r ? 'primary' : 'secondary'}
+                onPress={() => setRepetir(r)}
+                style={styles.flex}
+              />
+            ))}
+          </View>
+          {repetirEfetivo === 'parcelado' ? (
+            <>
+              <View style={{ height: space[2] }} />
+              <SeletorDeParcelas valor={parcelasConta} min={2} onChange={setParcelasConta} />
+              {valor > 0 ? (
+                <Txt variant="sm" color="textMuted" style={{ marginTop: space[2] }}>
+                  {`${textoDasParcelas(splitInstallments(valor, parcelasConta))} Uma por mês, a partir da data abaixo.`}
+                </Txt>
+              ) : null}
+            </>
+          ) : repetirEfetivo === 'mensal' ? (
+            <Txt variant="sm" color="textMuted" style={{ marginTop: space[2] }}>
+              {'Lançado todo mês, no mesmo dia, sem data para acabar. Para parar, exclua "esta e as próximas".'}
+            </Txt>
+          ) : null}
+        </>
+      ) : null}
+
       <DateField value={data} onChange={setData} />
+
+      {emConta ? (
+        <View style={[styles.linha, { marginTop: space[3] }]}>
+          <Button
+            label={recebe ? 'Recebido' : 'Pago'}
+            size="sm"
+            variant={pagoEfetivo ? 'primary' : 'secondary'}
+            onPress={() => setPagoEscolhido(true)}
+            style={styles.flex}
+          />
+          <Button
+            label={recebe ? 'A receber' : 'A pagar'}
+            size="sm"
+            variant={!pagoEfetivo ? 'primary' : 'secondary'}
+            onPress={() => setPagoEscolhido(false)}
+            style={styles.flex}
+          />
+        </View>
+      ) : null}
 
       <View style={{ marginTop: space[3] }}>
         <Field

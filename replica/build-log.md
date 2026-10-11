@@ -396,3 +396,54 @@ existe em `__DEV__`. Instalado nos dois celulares.
 - Pagar fatura continua sem ser visto no aparelho (a regra está testada).
 - O sync em segundo plano com as duas pessoas usando no dia a dia: o que foi
   visto é o primeiro envio e o primeiro download.
+
+## 2026-10-11 — Grupo 2: séries e pago/pendente
+
+Paridade: **66,7 / 100** (era 55,7) · must-haves **20 de 23** (eram 16).
+Recorrente, parcelado em conta, "ocorrência ou série" e pago/pendente viraram
+`yes`. Faltam orçamento por categoria, rosca de gastos e ícone na categoria.
+
+### Decisões
+
+- **Recorrente é "todo mês, sem fim".** Materializada 12 meses à frente
+  (`HORIZONTE_MESES`) e renovada a cada abertura do app
+  (`estenderRecorrencias`). A nota [P] previa 60 ocorrências; 12 cobrem
+  "quanto vou gastar em março?" sem encher o sync. "Fixa com fim conhecido"
+  não é um terceiro tipo: encerra-se excluindo "esta e as próximas".
+- **Sem mudança de schema.** Parcelado e recorrente se distinguem pelos campos
+  de parcela (`seriesId` com ou sem `parcelaN`). Encerrada = a última
+  ocorrência da série está excluída — as excluídas sincronizam, então a regra
+  vale em qualquer aparelho. Por isso excluir **só** a última ocorrência gera
+  a seguinte antes: senão encerraria a série sem querer.
+- **Datas sempre a partir da primeira ocorrência.** Somando mês a mês, o
+  dia 31 viraria 28 em fevereiro e ficaria 28 para sempre.
+- **Uma linha por mês, sempre.** A data de uma ocorrência muda só com o
+  escopo "só esta" e dentro do mesmo mês; é o que deixa a renovação calcular
+  o próximo mês sem pular nem repetir.
+- **A renovação copia a última ocorrência.** Editar "esta e as próximas"
+  (aluguel reajustado) vale também para o que ainda vai ser gerado.
+- **Escopo numa folha inferior**, não no `Alert`: o do Android comporta três
+  botões, e "só esta / próximas / todas / cancelar" são quatro. Cada opção diz
+  quantas ocorrências atinge (`escoposDaSerie`), como pede o ConfirmSheet de
+  `components.md`.
+- **Parcela do cartão agora pode ser excluída sozinha**, o que antes era
+  recusado. Continua barrado se a parcela atingida estiver em fatura paga.
+- **Pago/pendente:** escolha ao lançar ("Pago / A pagar", "Recebido / A
+  receber"), com padrão pela data, e botão na tela do lançamento, que não
+  fecha a tela. Marcar pago grava `pagoEm` = hoje. Compra no cartão não tem
+  esse estado: quem é paga é a fatura.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **132 testes** (eram 114) |
+| `npx expo export --platform android` | exit 0 |
+| mutação | 4 de 4 mortos: encerramento ignorado, excluir a última sem gerar a seguinte, data somada da anterior, "próximas" virando "todas" |
+
+### O que NÃO foi verificado
+
+- Nada do grupo 2 rodou no aparelho ainda.
+- Renovação com dois aparelhos offline ao mesmo tempo pode gerar o mesmo mês
+  duas vezes (cada um gera o seu). Com um aparelho por pessoa, não acontece;
+  se acontecer, a duplicata se exclui com "só esta".

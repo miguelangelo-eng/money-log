@@ -355,6 +355,24 @@ test('push que falha mantém a fila inteira para a próxima tentativa', async ()
   assert.equal(cel.fila(), 0);
 });
 
+test('recorrência baixada em outro aparelho não é duplicada ao renovar', async () => {
+  const { pg, ana } = await servidor();
+  const a = aparelho(pg, ana);
+  await a.sync.prepararAparelho(ana);
+  await a.repo.ensureSeed();
+  const conta = (await a.repo.listAccounts())[0].id;
+  await a.repo.addExpense({ amountCents: 150000, accountId: conta, repeticao: { tipo: 'mensal' } });
+  await a.sincronizar();
+
+  const b = aparelho(pg, ana);
+  await b.sync.prepararAparelho(ana);
+  const contarSerie = (x: ReturnType<typeof aparelho>) =>
+    x.contar('select count(*) as n from transactions where series_id is not null and deleted_at is null');
+  assert.equal(contarSerie(b), 13);
+  assert.equal(await b.repo.estenderRecorrencias(), 0, 'o outro aparelho já gerou até o horizonte');
+  assert.equal(b.fila(), 0);
+});
+
 test('instante do Postgres vira o ISO que o app grava', () => {
   assert.equal(instanteParaIso('2026-10-11T12:00:00.123456+00:00'), '2026-10-11T12:00:00.123Z');
   assert.equal(instanteParaIso('2026-10-11 09:00:00-03'), '2026-10-11T12:00:00.000Z');

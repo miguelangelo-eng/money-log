@@ -19,7 +19,7 @@ import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 
 import migrations from '../../drizzle/migrations';
 import { db } from '@/db/client';
-import { ensureSeed } from '@/data/ledger';
+import { ensureSeed, estenderRecorrencias } from '@/data/ledger';
 import { Entrar } from '@/components/entrar';
 import { Button, Txt } from '@/components/ui/primitives';
 import { space, useTheme } from '@/design/theme';
@@ -27,6 +27,13 @@ import { sync, useAutoSync } from '@/sync';
 import { ErroDeSync } from '@/sync/engine';
 import { useSessao } from '@/sync/sessao';
 import { mensagemDeAuth, supabase } from '@/sync/supabase';
+
+/** Antes da primeira tela: categorias e conta padrão (só na conta nova) e as
+ *  recorrências renovadas até 12 meses à frente. As duas são idempotentes. */
+async function prepararDados() {
+  await ensureSeed();
+  await estenderRecorrencias();
+}
 
 type Fase =
   | { tipo: 'carregando'; texto?: string }
@@ -56,7 +63,7 @@ function usePortao(migrado: boolean): [Fase, () => void] {
     (async (): Promise<Fase> => {
       // Sem Supabase configurado: só local, como antes do M1.
       if (!sync || sync.estado().dono !== null) {
-        await ensureSeed();
+        await prepararDados();
         return { tipo: 'pronto' };
       }
       if (carregando) return { tipo: 'carregando' };
@@ -66,7 +73,7 @@ function usePortao(migrado: boolean): [Fase, () => void] {
       await sync.prepararAparelho(uid);
       // Conta nova: semeia aqui, DEPOIS de saber que a nuvem está vazia. Antes
       // do preparo, semear criaria categorias que colidem com as da nuvem.
-      await ensureSeed();
+      await prepararDados();
       return { tipo: 'pronto' };
     })()
       .then(ir)

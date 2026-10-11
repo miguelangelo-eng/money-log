@@ -7,10 +7,11 @@
  *  - despesa/receita em conta: valor, data, categoria, conta, descrição;
  *  - transferência: valor, data, origem, destino, descrição;
  *  - compra no cartão: categoria e descrição. Valor e data definem a fatura;
- *    excluir apaga a compra inteira, todas as parcelas;
  *  - pagamento de fatura: não se edita; excluir desfaz o pagamento.
  *
- *  Toda exclusão pede confirmação dizendo exatamente o que sai.
+ *  Numa série (parcelado ou recorrente), salvar e excluir abrem a folha
+ *  "só esta / esta e as próximas / todas", com quantas ocorrências cada uma
+ *  atinge. Fora de série, toda exclusão pede confirmação dizendo o que sai.
  */
 
 import { useEffect, useState } from 'react';
@@ -20,18 +21,22 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { DateField, dataCurta } from '@/components/ui/date-field';
 import { MoneyInput } from '@/components/ui/money-input';
 import { Button, Card, EmptyState, Field, SectionHeader, Txt } from '@/components/ui/primitives';
+import { EscolhaSheet, type OpcaoDaFolha } from '@/components/ui/sheet';
 import { OptionList } from '@/components/ui/widgets';
 import {
   deleteTransaction,
+  escoposDaSerie,
   getTransaction,
   listAccounts,
   listCategories,
+  marcarPago,
   updateTransaction,
 } from '@/data/ledger';
 import { useAsync } from '@/data/use-async';
 import { space, useTheme } from '@/design/theme';
 import type { Transaction } from '@/db/schema';
 import { formatCents, formatSigned } from '@/lib/money';
+import { tipoDaSerie, type Escopo } from '@/lib/serie';
 
 const TITULO: Record<Transaction['kind'], string> = {
   despesa: 'Despesa',
@@ -46,13 +51,6 @@ function textoDeConfirmacao(tx: Transaction): { titulo: string; corpo: string; a
       titulo: 'Desfazer o pagamento?',
       corpo: `${formatCents(tx.amountCents)} voltam para a conta e a fatura fica em aberto de novo.`,
       acao: 'Desfazer',
-    };
-  }
-  if (tx.creditCardId && tx.parcelaDe && tx.parcelaDe > 1) {
-    return {
-      titulo: 'Excluir a compra inteira?',
-      corpo: `As ${tx.parcelaDe} parcelas saem das faturas. Não dá para excluir só uma parcela.`,
-      acao: 'Excluir compra',
     };
   }
   if (tx.creditCardId) {
@@ -91,6 +89,13 @@ export default function Lancamento() {
   const [destinoId, setDestinoId] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  /** Qual pergunta de escopo está aberta, se alguma. */
+  const [folha, setFolha] = useState<'salvar' | 'excluir' | null>(null);
+
+  const escopos = useAsync(
+    () => (tx?.seriesId ? escoposDaSerie(tx.id) : Promise.resolve(null)),
+    ['escopos', tx?.id ?? null, tx?.seriesId ?? null],
+  );
 
   useEffect(() => {
     if (!tx || pronto) return;
@@ -108,19 +113,13 @@ export default function Lancamento() {
     else router.replace('/lancamentos');
   }
 
-  async function salvar() {
-    if (!tx) return;
+  /** Roda uma ação e volta; erro fica na tela, sem sair. */
+  async function executar(acao: () => Promise<unknown>) {
+    setFolha(null);
     setOcupado(true);
     setErro(null);
     try {
-      const noCartao = Boolean(tx.creditCardId);
-      await updateTransaction(tx.id, {
-        descricao,
-        ...(tx.kind !== 'transferencia' ? { categoryId: categoriaId } : {}),
-        ...(noCartao ? {} : { amountCents: valor, competencia: data }),
-        ...(noCartao || !contaId ? {} : { accountId: contaId }),
-        ...(tx.kind === 'transferencia' && destinoId ? { transferAccountId: destinoId } : {}),
-      });
+      await acao();
       sair();
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
@@ -128,25 +127,55 @@ export default function Lancamento() {
     }
   }
 
+  function gravar(escopo: Escopo) {
+    if (!tx) return;
+    const noCartao = Boolean(tx.creditCardId);
+    void executar(() =>
+      updateTransaction(
+        tx.id,
+        {
+          descricao,
+          ...(tx.kind !== 'transferencia' ? { categoryId: categoriaId } : {}),
+          ...(noCartao ? {} : { amountCents: valor, competencia: data }),
+          ...(noCartao || !contaId ? {} : { accountId: contaId }),
+          ...(tx.kind === 'transferencia' && destinoId ? { transferAccountId: destinoId } : {}),
+        },
+        escopo,
+      ),
+    );
+  }
+
+  function salvar() {
+    if (!tx) return;
+    if (tx.seriesId) setFolha('salvar');
+    else gravar('esta');
+  }
+
+  /** Fica na tela: marcar como pago costuma vir junto de olhar o resto. */
+  async function alternarPago() {
+    if (!tx) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      await marcarPago(tx.id, !tx.pago);
+      lanc.reload();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   function excluir() {
     if (!tx) return;
+    if (tx.seriesId) return setFolha('excluir');
     const c = textoDeConfirmacao(tx);
     Alert.alert(c.titulo, c.corpo, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: c.acao,
         style: 'destructive',
-        onPress: async () => {
-          setOcupado(true);
-          setErro(null);
-          try {
-            await deleteTransaction(tx.id);
-            sair();
-          } catch (e) {
-            setErro(e instanceof Error ? e.message : String(e));
-            setOcupado(false);
-          }
-        },
+        onPress: () => void executar(() => deleteTransaction(tx.id)),
       },
     ]);
   }
@@ -190,6 +219,40 @@ export default function Lancamento() {
   const pagamento = tx.kind === 'pagamento_fatura';
   const transferencia = tx.kind === 'transferencia';
   const listaContas = contas.data ?? [];
+  const serie = tipoDaSerie(tx);
+  const temPagoPendente = !pagamento && !noCartao;
+  const n = escopos.data;
+  const mudouData = data !== tx.competencia;
+
+  const opcoesDaFolha: OpcaoDaFolha[] =
+    folha === 'salvar'
+      ? mudouData
+        ? [{ label: 'Só esta', onPress: () => gravar('esta') }]
+        : [
+            { label: 'Só esta', onPress: () => gravar('esta') },
+            { label: `Esta e as próximas (${n?.proximas ?? '…'})`, onPress: () => gravar('proximas') },
+            { label: `Todas (${n?.todas ?? '…'})`, onPress: () => gravar('todas') },
+          ]
+      : [
+          {
+            label: 'Só esta',
+            variant: 'danger',
+            onPress: () => void executar(() => deleteTransaction(tx.id, 'esta')),
+          },
+          {
+            label:
+              serie === 'recorrente'
+                ? `Esta e as próximas — parar de repetir (${n?.proximas ?? '…'})`
+                : `Esta e as próximas (${n?.proximas ?? '…'})`,
+            variant: 'danger',
+            onPress: () => void executar(() => deleteTransaction(tx.id, 'proximas')),
+          },
+          {
+            label: `Todas (${n?.todas ?? '…'})`,
+            variant: 'danger',
+            onPress: () => void executar(() => deleteTransaction(tx.id, 'todas')),
+          },
+        ];
 
   return (
     <ScrollView
@@ -197,6 +260,14 @@ export default function Lancamento() {
       contentContainerStyle={styles.tela}
       keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: TITULO[tx.kind] }} />
+
+      {serie ? (
+        <Txt variant="sm" color="textMuted" style={{ marginBottom: space[2] }}>
+          {serie === 'recorrente'
+            ? '↻ Repete todo mês'
+            : `Parcela ${tx.parcelaN} de ${tx.parcelaDe}`}
+        </Txt>
+      ) : null}
 
       {pagamento || noCartao ? (
         // Valor e data travados: mostrados, não editáveis, com o motivo.
@@ -277,6 +348,32 @@ export default function Lancamento() {
         </View>
       ) : null}
 
+      {temPagoPendente ? (
+        <Card style={{ marginTop: space[3] }}>
+          <View style={styles.pagoLinha}>
+            <View style={{ flex: 1 }}>
+              <Txt variant="base" style={{ fontWeight: '600' }}>
+                {tx.pago ? '✓ Pago' : '○ Pendente'}
+              </Txt>
+              <Txt variant="xs" color="textMuted">
+                {tx.pago
+                  ? tx.pagoEm
+                    ? `em ${dataCurta(tx.pagoEm)}. Conta no saldo.`
+                    : 'Conta no saldo.'
+                  : 'Previsto: ainda não conta no saldo.'}
+              </Txt>
+            </View>
+            <Button
+              label={tx.pago ? 'Marcar pendente' : 'Marcar pago'}
+              size="sm"
+              variant={tx.pago ? 'secondary' : 'primary'}
+              onPress={alternarPago}
+              disabled={ocupado}
+            />
+          </View>
+        </Card>
+      ) : null}
+
       {erro ? (
         <Txt variant="sm" color="danger" style={{ marginTop: space[2] }}>
           {erro}
@@ -294,11 +391,31 @@ export default function Lancamento() {
         />
       ) : null}
       <Button
-        label={pagamento ? 'Desfazer pagamento' : noCartao ? 'Excluir compra' : 'Excluir'}
+        label={pagamento ? 'Desfazer pagamento' : noCartao && !serie ? 'Excluir compra' : 'Excluir'}
         variant="danger"
         onPress={excluir}
         disabled={ocupado}
         style={{ marginTop: space[3] }}
+      />
+
+      <EscolhaSheet
+        visivel={folha !== null}
+        titulo={
+          folha === 'salvar'
+            ? 'Aplicar a alteração em quais?'
+            : serie === 'recorrente'
+              ? 'Excluir qual ocorrência?'
+              : 'Excluir quais parcelas?'
+        }
+        texto={
+          folha === 'salvar' && mudouData
+            ? 'A data muda uma ocorrência por vez.'
+            : folha === 'excluir' && serie === 'recorrente'
+              ? '"Esta e as próximas" encerra a repetição.'
+              : undefined
+        }
+        opcoes={opcoesDaFolha}
+        onCancelar={() => setFolha(null)}
       />
     </ScrollView>
   );
@@ -306,4 +423,5 @@ export default function Lancamento() {
 
 const styles = StyleSheet.create({
   tela: { padding: space[4], paddingBottom: space[8] },
+  pagoLinha: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
 });

@@ -7,10 +7,10 @@ Lançar despesa manual,lançamentos,must,yes,yes,S05+S06 em src/app/novo.tsx; da
 Lançar receita manual,lançamentos,must,yes,yes,"mesma tela, seletor de tipo"
 Transferência entre contas,lançamentos,must,yes,yes,uma linha com origem e destino; nao entra em gasto nem entrada do mes
 Editar e excluir lançamento,lançamentos,must,yes,yes,"S07; compra no cartao edita so categoria e descricao, e excluir apaga a compra inteira"
-Marcar lançamento como pago ou pendente,lançamentos,must,yes,no,separa previsto de realizado
-Despesa parcelada em N vezes,lançamentos,must,yes,partial,"so no cartao, ate 24x; parcelado em conta nao existe ainda"
-Despesa fixa recorrente,lançamentos,must,yes,no,
-Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,no,"hoje excluir uma parcela apaga a serie inteira, sem escolha"
+Marcar lançamento como pago ou pendente,lançamentos,must,yes,yes,escolha ao lançar (padrão pela data) e botão em S07; saldo conta só o pago
+Despesa parcelada em N vezes,lançamentos,must,yes,yes,"no cartão e em conta, 2 a 24x, resto dos centavos nas primeiras"
+Despesa fixa recorrente,lançamentos,must,yes,yes,"todo mês sem fim, materializada 12 meses à frente e renovada ao abrir; encerra excluindo esta e as próximas"
+Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,yes,"folha inferior: só esta, esta e as próximas, todas, com a contagem; data muda uma por vez, no mesmo mês"
 Lista do mês com seletor de mês,lançamentos,must,yes,yes,"S04 em src/app/lancamentos.tsx, agrupada por dia"
 Categorias padrão de despesa e receita,categorias,must,yes,yes,"10 categorias semeadas no primeiro boot, nomes proprios"
 Criar categoria própria com ícone e cor,categorias,must,yes,partial,cor dos 8 slots validados; icone fica para quando houver conjunto de icones

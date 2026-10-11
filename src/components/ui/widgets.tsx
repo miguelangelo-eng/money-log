@@ -75,6 +75,7 @@ export function TransactionRow({
   const { valor, cor: corValor, tipo } = apresentacao[tx.kind];
 
   const parcela = tx.parcelaN && tx.parcelaDe ? `${tx.parcelaN}/${tx.parcelaDe}` : null;
+  const recorrente = tx.seriesId !== null && tx.parcelaN === null;
   const noCartao = tx.creditCardId !== null && tx.kind !== 'pagamento_fatura';
 
   // Uma linha é UM nó de leitura, não seis. Ver a11y em components.md.
@@ -83,6 +84,7 @@ export function TransactionRow({
     tipo,
     `de ${formatCents(tx.amountCents)}`,
     parcela ? `parcela ${tx.parcelaN} de ${tx.parcelaDe}` : null,
+    recorrente ? 'repete todo mês' : null,
     noCartao ? 'no cartão' : null,
     `dia ${day}`,
     tx.pago ? 'pago' : 'pendente',
@@ -94,6 +96,7 @@ export function TransactionRow({
     tx.kind === 'pagamento_fatura' ? 'Pagamento de fatura' : (categoria?.nome ?? 'Sem categoria'),
     noCartao ? 'cartão' : null,
     parcela,
+    recorrente ? '↻ mensal' : null,
   ]
     .filter(Boolean)
     .join(' · ');
