@@ -205,7 +205,12 @@ pelo tipo do lançamento, que obriga o compilador a cobrar cada tipo novo.
 
 ### O que NÃO foi verificado
 
-- **Nada do M2 rodou no aparelho ainda.**
+- ~~**Nada do M2 rodou no aparelho ainda.**~~ **Validado no Android em
+  2026-10-11:** cadastro de cartão com a prévia de fatura, compra parcelada
+  em 3x, fatura listando a parcela 1/3 como aberta, rótulo "cartão · 1/3" na
+  lista de lançamentos, e o saldo da conta **intacto** depois da compra —
+  o caso em que um erro de modelagem tiraria o dinheiro duas vezes.
+  Falta ver o pagamento, que só libera depois do fechamento.
 - **Pagar fatura no celular exige esperar um dia.** A tela de lançamento
   ainda não deixa escolher a data, e só fatura fechada pode ser paga. Para
   testar: cadastrar o cartão com **fechamento no dia de hoje**, lançar uma
