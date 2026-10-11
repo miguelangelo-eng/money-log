@@ -8,6 +8,7 @@ import { radius, space, TARGET_MIN, useTheme } from '@/design/theme';
 import { addMonths, monthStart, parse } from '@/lib/civil-date';
 import { formatCents, formatSigned } from '@/lib/money';
 import type { Transaction } from '@/db/schema';
+import type { StatusFatura } from '@/lib/card';
 
 import { Button, Card, Row, Txt } from './primitives';
 
@@ -15,6 +16,22 @@ const MESES = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
 ];
+
+/** "outubro de 2026" -> "outubro". O ano só atrapalha numa linha de fatura. */
+export const mesCurto = (d: string) => nomeDoMes(d).split(' de ')[0];
+
+/** '2026-11-10' -> '10/11'. */
+export const diaMes = (d: string) => {
+  const { day, month } = parse(d);
+  return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+};
+
+/** Status de fatura sempre com marca textual, não só cor. */
+export const ROTULO_STATUS: Record<StatusFatura, string> = {
+  aberta: '○ aberta',
+  fechada: '● fechada',
+  paga: '✓ paga',
+};
 
 export function nomeDoMes(d: string): string {
   const { year, month } = parse(d);
@@ -35,23 +52,51 @@ export function TransactionRow({
   onPress?: () => void;
 }) {
   const t = useTheme();
-  const transferencia = tx.kind === 'transferencia';
   const { day } = parse(tx.competencia);
 
-  const valor = transferencia
-    ? formatCents(tx.amountCents)
-    : formatSigned(tx.amountCents, tx.kind as 'despesa' | 'receita');
+  /** Cada tipo decide sinal, cor e rótulo explicitamente. Um `else` genérico
+   *  aqui já foi um bug: com o tipo `pagamento_fatura`, ele cairia no ramo
+   *  de receita e apareceria com `+`. */
+  const apresentacao: Record<
+    Transaction['kind'],
+    { valor: string; cor: 'danger' | 'success' | 'textMuted'; tipo: string }
+  > = {
+    despesa: { valor: formatSigned(tx.amountCents, 'despesa'), cor: 'danger', tipo: 'despesa' },
+    receita: { valor: formatSigned(tx.amountCents, 'receita'), cor: 'success', tipo: 'receita' },
+    // Move dinheiro entre contas do próprio usuário: sem sinal, sem cor.
+    transferencia: { valor: formatCents(tx.amountCents), cor: 'textMuted', tipo: 'transferência' },
+    // Sai da conta, mas não é gasto novo (a compra já foi): sinal, sem vermelho.
+    pagamento_fatura: {
+      valor: formatSigned(tx.amountCents, 'despesa'),
+      cor: 'textMuted',
+      tipo: 'pagamento de fatura',
+    },
+  };
+  const { valor, cor: corValor, tipo } = apresentacao[tx.kind];
 
-  const corValor = transferencia ? 'textMuted' : tx.kind === 'despesa' ? 'danger' : 'success';
+  const parcela = tx.parcelaN && tx.parcelaDe ? `${tx.parcelaN}/${tx.parcelaDe}` : null;
+  const noCartao = tx.creditCardId !== null && tx.kind !== 'pagamento_fatura';
 
   // Uma linha é UM nó de leitura, não seis. Ver a11y em components.md.
   const leitura = [
     tx.descricao || categoria?.nome || 'Lançamento',
-    transferencia ? 'transferência' : tx.kind,
+    tipo,
     `de ${formatCents(tx.amountCents)}`,
+    parcela ? `parcela ${tx.parcelaN} de ${tx.parcelaDe}` : null,
+    noCartao ? 'no cartão' : null,
     `dia ${day}`,
     tx.pago ? 'pago' : 'pendente',
-  ].join(', ');
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  const subtitulo = [
+    tx.kind === 'pagamento_fatura' ? 'Pagamento de fatura' : (categoria?.nome ?? 'Sem categoria'),
+    noCartao ? 'cartão' : null,
+    parcela,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <Row onPress={onPress} accessibilityLabel={leitura}>
@@ -67,7 +112,7 @@ export function TransactionRow({
         </Txt>
         <Txt variant="xs" color="textMuted">
           {/* Pendente carrega ÍCONE textual + rótulo, nunca só a cor. */}
-          {categoria?.nome ?? 'Sem categoria'}
+          {subtitulo}
           {tx.pago ? '' : '  ○ pendente'}
         </Txt>
       </View>

@@ -152,8 +152,13 @@ export const transactions = sqliteTable(
   {
     id: id(),
     userId: userId(),
+    /** `pagamento_fatura`: dinheiro que sai da conta para quitar uma fatura.
+     *  Não é despesa (a compra já foi a despesa, na data dela) nem
+     *  transferência (cartão não é conta). Leva account_id, credit_card_id e
+     *  invoice_id ao mesmo tempo, e nenhum relatório de gasto o soma — se
+     *  somasse, cada compra no cartão contaria duas vezes. */
     kind: text('kind', {
-      enum: ['despesa', 'receita', 'transferencia'],
+      enum: ['despesa', 'receita', 'transferencia', 'pagamento_fatura'],
     }).notNull(),
     /** SEMPRE positivo. O sinal vem de kind. Ver nota [V]. */
     amountCents: integer('amount_cents').notNull(),

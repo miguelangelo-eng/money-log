@@ -89,6 +89,12 @@ export default function RootLayout() {
         name="novo"
         options={{ title: 'Novo lançamento', presentation: 'modal' }}
       />
+      <Stack.Screen
+        name="cartao-novo"
+        options={{ title: 'Novo cartão', presentation: 'modal' }}
+      />
+      {/* O título real (nome do cartão) é definido pela própria tela. */}
+      <Stack.Screen name="cartao/[id]" options={{ title: 'Cartão' }} />
     </Stack>
   );
 }

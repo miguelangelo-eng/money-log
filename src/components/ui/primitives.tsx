@@ -5,12 +5,14 @@
  *  tokens, não no componente.
  */
 
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
+  type KeyboardTypeOptions,
   type PressableProps,
   type StyleProp,
   type TextStyle,
@@ -279,6 +281,76 @@ export function Row({
       {...rest}>
       {children}
     </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Field — campo de texto rotulado
+// ---------------------------------------------------------------------------
+
+/** Rótulo SEMPRE visível acima do campo, nunca só placeholder: placeholder
+ *  como rótulo some ao digitar, e quem usa leitor de tela perde o que o campo
+ *  é. O erro vai no accessibilityHint para ser lido junto com o campo. */
+export function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  erro,
+  maxLength,
+  dica,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder?: string;
+  keyboardType?: KeyboardTypeOptions;
+  erro?: string | null;
+  maxLength?: number;
+  dica?: string;
+}) {
+  const t = useTheme();
+  const [focado, setFocado] = useState(false);
+  const borda = erro ? t.fillDanger : focado ? t.accent : t.borderInput;
+
+  return (
+    <View style={{ marginBottom: space[3] }}>
+      <Txt variant="sm" style={{ fontWeight: '600', marginBottom: space[1] }}>
+        {label}
+      </Txt>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={t.textMuted}
+        keyboardType={keyboardType}
+        maxLength={maxLength}
+        onFocus={() => setFocado(true)}
+        onBlur={() => setFocado(false)}
+        accessibilityLabel={label}
+        accessibilityHint={erro ?? dica}
+        style={{
+          minHeight: TARGET_MIN,
+          borderWidth: focado || erro ? 2 : 1,
+          borderColor: borda,
+          borderRadius: radius.md,
+          paddingHorizontal: space[3],
+          color: t.text,
+          backgroundColor: t.surface,
+          fontSize: typeScale.base.fontSize,
+        }}
+      />
+      {erro ? (
+        <Txt variant="xs" color="danger" style={{ marginTop: space[1] }}>
+          {`⚠ ${erro}`}
+        </Txt>
+      ) : dica ? (
+        <Txt variant="xs" color="textMuted" style={{ marginTop: space[1] }}>
+          {dica}
+        </Txt>
+      ) : null}
+    </View>
   );
 }
 

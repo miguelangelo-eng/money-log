@@ -8,16 +8,16 @@ Lançar receita manual,lançamentos,must,yes,yes,"mesma tela, seletor de tipo"
 Transferência entre contas,lançamentos,must,yes,no,não pode entrar no relatório como receita nem como despesa
 Editar e excluir lançamento,lançamentos,must,yes,no,
 Marcar lançamento como pago ou pendente,lançamentos,must,yes,no,separa previsto de realizado
-Despesa parcelada em N vezes,lançamentos,must,yes,no,cuidar do valor que não divide redondo
+Despesa parcelada em N vezes,lançamentos,must,yes,partial,"so no cartao, ate 24x; parcelado em conta nao existe ainda"
 Despesa fixa recorrente,lançamentos,must,yes,no,
 Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,no,o original pergunta ao usuário; copiar esse comportamento
 Lista do mês com seletor de mês,lançamentos,must,yes,yes,"S04 em src/app/lancamentos.tsx, agrupada por dia"
 Categorias padrão de despesa e receita,categorias,must,yes,yes,"10 categorias semeadas no primeiro boot, nomes proprios"
 Criar categoria própria com ícone e cor,categorias,must,yes,no,
-Cadastrar cartão com limite fechamento e vencimento,cartões,must,yes,no,campos confirmados na fonte 4
-Lançar compra no cartão,cartões,must,yes,no,não debita o saldo da conta na hora
-Fatura do cartão com total e navegação entre faturas,cartões,must,yes,no,
-Pagar fatura debitando uma conta,cartões,must,yes,no,o ponto em que o dinheiro sai de verdade
+Cadastrar cartão com limite fechamento e vencimento,cartões,must,yes,yes,S11; previa ao vivo de em que fatura cai uma compra de hoje
+Lançar compra no cartão,cartões,must,yes,yes,S06 com Pagar com: Conta | Cartao; invoice_id gravado na escrita
+Fatura do cartão com total e navegação entre faturas,cartões,must,yes,yes,"S12; status derivado de datas, so paga e persistido"
+Pagar fatura debitando uma conta,cartões,must,yes,yes,"tipo proprio pagamento_fatura; so fatura fechada, pagamento integral (parcial fica para depois)"
 Relatório de gastos por categoria,relatórios,must,yes,partial,"lista ranqueada pronta; a rosca exige Skia, ainda nao instalado"
 Relatório de receita versus despesa do mês,relatórios,must,yes,yes,"S15, barras com par polar azul-vermelho"
 Limite de gastos por categoria com barra de progresso,orçamento,must,yes,no,"no original aparece como ""Metas"""

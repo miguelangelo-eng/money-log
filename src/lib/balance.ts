@@ -8,8 +8,10 @@
  *    - receita entra na conta de origem (accountId)
  *    - despesa sai da conta de origem
  *    - transferência sai da origem e entra no destino (transferAccountId)
+ *    - pagamento de fatura sai da conta que pagou
  *    - só o que está pago conta; previsto não é saldo
- *    - lançamento de cartão (accountId nulo) não move conta corrente
+ *    - compra no cartão (accountId nulo) não move conta corrente: quem move é
+ *      o pagamento da fatura, que é uma linha própria
  */
 
 import type { Cents } from './money';
@@ -17,7 +19,7 @@ import type { Cents } from './money';
 export interface LinhaAgregada {
   accountId: string | null;
   transferAccountId: string | null;
-  kind: 'despesa' | 'receita' | 'transferencia';
+  kind: 'despesa' | 'receita' | 'transferencia' | 'pagamento_fatura';
   pago: boolean;
   total: Cents;
 }
@@ -36,6 +38,7 @@ export function saldoDaConta(
       if (l.kind === 'receita') saldo += l.total;
       if (l.kind === 'despesa') saldo -= l.total;
       if (l.kind === 'transferencia') saldo -= l.total;
+      if (l.kind === 'pagamento_fatura') saldo -= l.total;
     }
 
     if (l.kind === 'transferencia' && l.transferAccountId === contaId) {

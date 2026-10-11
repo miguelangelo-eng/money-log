@@ -21,6 +21,7 @@ import {
   type Transaction,
 } from '@/db/schema';
 import { clampDay, daysInMonth, monthStart, parse, today } from '@/lib/civil-date';
+import { createCardsRepo } from '@/data/cards';
 import { saldoDaConta, type LinhaAgregada } from '@/lib/balance';
 import type { Cents } from '@/lib/money';
 
@@ -334,6 +335,15 @@ export async function addIncome(
   });
   return id;
 }
+
+// ---------------------------------------------------------------------------
+// Cartão de crédito
+// ---------------------------------------------------------------------------
+
+/** Instância do repositório de cartão ligada ao banco do aparelho. A lógica
+ *  está em ./cards.ts, separada para poder rodar contra node:sqlite nos
+ *  testes. */
+export const cards = createCardsRepo({ db, newId, nowIso, userId: LOCAL_USER_ID });
 
 /** Exclusão é SOFT. Nunca `delete from` em tabela sincronizada. */
 export async function softDelete(id: string, userId = LOCAL_USER_ID): Promise<void> {

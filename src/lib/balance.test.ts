@@ -89,6 +89,28 @@ test('despesa sem conta (cartão) não move conta corrente', () => {
   assert.equal(saldoDaConta(CARTEIRA, 1000, [despesa(null, 50000)]), 1000);
 });
 
+test('pagamento de fatura sai da conta que pagou', () => {
+  const pagamento: LinhaAgregada = {
+    accountId: CARTEIRA,
+    transferAccountId: null,
+    kind: 'pagamento_fatura',
+    pago: true,
+    total: 30000,
+  };
+  assert.equal(saldoDaConta(CARTEIRA, 100000, [pagamento]), 70000);
+  assert.equal(saldoDaConta(NUBANK, 0, [pagamento]), 0);
+});
+
+test('compra no cartão + pagamento da fatura: o dinheiro sai uma vez só', () => {
+  // A compra (accountId nulo) não mexe na conta; o pagamento mexe. Se a compra
+  // também mexesse, o saldo cairia duas vezes pelo mesmo gasto.
+  const linhas: LinhaAgregada[] = [
+    despesa(null, 30000),
+    { accountId: CARTEIRA, transferAccountId: null, kind: 'pagamento_fatura', pago: true, total: 30000 },
+  ];
+  assert.equal(saldoDaConta(CARTEIRA, 100000, linhas), 70000);
+});
+
 test('saldo pode ficar negativo e o sinal é preservado', () => {
   assert.equal(saldoDaConta(CARTEIRA, 0, [despesa(CARTEIRA, 42900)]), -42900);
 });

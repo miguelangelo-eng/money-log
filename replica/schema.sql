@@ -119,7 +119,8 @@ create table transactions (
   id                  uuid primary key default gen_random_uuid(),
   user_id             uuid not null references profiles(id) on delete cascade,
 
-  kind                text not null check (kind in ('despesa','receita','transferencia')),
+  kind                text not null
+                        check (kind in ('despesa','receita','transferencia','pagamento_fatura')),
   -- SEMPRE positivo. O sinal vem do kind, não do valor. Ver [V].
   amount_cents        bigint not null check (amount_cents > 0),
   currency            char(3) not null default 'BRL',
@@ -153,8 +154,22 @@ create table transactions (
   -- Despesa e receita saem de UMA conta ou de UM cartão, nunca de ambos,
   -- nunca de nenhum.
   constraint tx_origem_exclusiva check (
-    kind = 'transferencia'
+    kind in ('transferencia','pagamento_fatura')
     or (account_id is not null) <> (credit_card_id is not null)
+  ),
+  -- Pagamento de fatura: sai de UMA conta, quita UMA fatura de UM cartão.
+  -- Leva conta e cartão ao mesmo tempo, por isso é exceção à regra acima.
+  -- Não tem categoria: não é gasto (a compra já foi), e nenhum relatório o
+  -- soma como despesa. Ver nota [G].
+  constraint tx_pagamento_fatura_bem_formado check (
+    kind <> 'pagamento_fatura' or (
+      account_id is not null
+      and credit_card_id is not null
+      and invoice_id is not null
+      and category_id is null
+      and transfer_account_id is null
+      and series_id is null
+    )
   ),
   -- Lançamento em cartão obriga fatura. É o que torna o histórico estável.
   constraint tx_cartao_exige_fatura check (
@@ -424,6 +439,14 @@ end $$;
 --     linha existiu. updated_at é o cursor do sync.
 --     O relógio usado é o do SERVIDOR (now() no Postgres, via trigger), nunca
 --     o do celular: relógio de aparelho atrasa, adianta e o usuário mexe nele.
+--
+-- [G] Pagamento de fatura é um tipo próprio, `pagamento_fatura`.
+--     A compra no cartão já é a despesa, na data dela. Se o pagamento também
+--     fosse `despesa`, cada compra contaria duas vezes no relatório. Se fosse
+--     `transferencia`, faltaria a conta de destino — cartão não é conta.
+--     O tipo próprio tira o dinheiro da conta (saldo) sem entrar em nenhum
+--     total de gasto, e fica ligado à fatura que quita. No SQLite do aparelho
+--     a regra é aplicada na camada de dados (src/data/cards.ts), com testes.
 --
 -- [I] import_batches.sha256 é único por usuário: reimportar o mesmo arquivo é
 --     rejeitado pelo banco. É a defesa contra o erro mais comum do import.

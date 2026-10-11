@@ -3,15 +3,31 @@
   "compilerOptions": {
     "strict": true,
     "target": "ESNext",
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "module": "preserve",
     "moduleResolution": "bundler",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "include": ["src/lib/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/lib/**/*.ts",
+    "src/data/cards.ts",
+    "src/data/cards.test.ts",
+    "src/db/schema.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

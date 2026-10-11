@@ -24,13 +24,16 @@ export function MoneyInput({
 }: {
   valueCents: Cents;
   onChange: (cents: Cents) => void;
-  kind: 'despesa' | 'receita';
+  /** `neutro` é para valor que não é entrada nem saída — limite de cartão,
+   *  saldo inicial. Sem sinal e sem cor semântica: um `−` num limite seria
+   *  informação falsa. */
+  kind: 'despesa' | 'receita' | 'neutro';
   autoFocus?: boolean;
 }) {
   const t = useTheme();
   const input = useRef<TextInput>(null);
-  const cor = kind === 'despesa' ? t.danger : t.success;
-  const sinal = kind === 'despesa' ? '−' : '+';
+  const cor = kind === 'despesa' ? t.danger : kind === 'receita' ? t.success : t.text;
+  const sinal = kind === 'despesa' ? '−' : kind === 'receita' ? '+' : '';
 
   /** O TextInput real fica invisível e com valor vazio; o que o usuário vê é
    *  texto formatado. Assim o cursor nunca aparece no meio do número e não há
@@ -45,15 +48,17 @@ export function MoneyInput({
       onPress={() => input.current?.focus()}
       accessibilityRole="none"
       // O sinal é lido junto: a cor NÃO é a portadora do significado.
-      accessibilityLabel={`${kind} de ${formatCents(valueCents)}`}
+      accessibilityLabel={`${kind === 'neutro' ? 'valor' : kind} de ${formatCents(valueCents)}`}
       style={styles.wrap}>
       <View style={styles.linha}>
-        <Txt variant="xl" color={kind === 'despesa' ? 'danger' : 'success'}>
-          {sinal}
-        </Txt>
+        {sinal ? (
+          <Txt variant="xl" color={kind === 'despesa' ? 'danger' : 'success'}>
+            {sinal}
+          </Txt>
+        ) : null}
         <Txt
           variant="money"
-          style={{ color: cor, marginLeft: space[2] }}
+          style={{ color: cor, marginLeft: sinal ? space[2] : 0 }}
           numberOfLines={1}>
           {formatCents(valueCents)}
         </Txt>

@@ -141,3 +141,75 @@ da fatia vertical.
 Depois, na ordem: teste de `accountBalances`/`expensesByCategory`, S09 (criar
 conta), S07 (editar e excluir), e então o M2 (cartão de crédito), que é onde a
 lógica de `src/lib/invoice.ts` — já testada — finalmente é usada.
+
+## 2026-10-10 — M2: cartão de crédito
+
+| tela | estado | falta |
+|---|---|---|
+| S10 Cartões (nova aba) | **feito** | arquivar e editar cartão |
+| S11 Novo cartão | **feito** | edição de cartão existente |
+| S12 Fatura | **feito** | pagamento parcial, estorno |
+| S06 Novo lançamento | **parcial** | ganhou "Pagar com: Conta \| Cartão" e parcelas até 24x no cartão; continua sem data escolhida, transferência e recorrência |
+
+Paridade: **34,4 / 100** (era 20,3) · must-haves **10 de 23** (eram 6).
+
+### Decisões
+
+- **Pagamento de fatura é um tipo próprio, `pagamento_fatura`.** A compra já é
+  a despesa, na data dela. Como `despesa`, o pagamento contaria cada compra
+  duas vezes nos relatórios; como `transferencia`, faltaria conta de destino.
+  O tipo próprio tira o dinheiro da conta sem entrar em total de gasto. No
+  SQLite o enum é só tipo, então não houve migração; no Postgres virou check
+  constraint (`tx_pagamento_fatura_bem_formado`, nota [G] do `schema.sql`).
+- **Status da fatura é derivado de datas**, não persistido. Só `paga` é
+  estado, porque depende de um ato do usuário. Assim a fatura fecha no dia
+  certo mesmo offline, e o job `fechar_faturas` da arquitetura deixa de ser
+  necessário no aparelho.
+- **Só fatura fechada pode ser paga, e só por inteiro.** Pagar uma aberta
+  deixaria compras novas caírem numa fatura quitada; o banco trata isso como
+  pagamento antecipado parcial, e modelar parcial ficou para depois.
+- **A camada de dados do cartão recebe o banco por injeção**
+  (`createCardsRepo`). É o que permite testá-la no Node contra SQLite real.
+
+### O que foi mais difícil do que parecia
+
+**Testar a camada de dados de verdade.** O driver do expo-sqlite não carrega
+no Node, e o do better-sqlite3 importa o pacote nativo (não instalado) no
+`driver.js`. A saída: montar a sessão do better-sqlite3 direto do
+`session.js`, que não importa nada nativo, sobre um adaptador de ~30 linhas
+para o `node:sqlite` do Node 24 — o mesmo motor do aparelho. Os 16 testes de
+`src/data/cards.test.ts` rodam com a migração gerada aplicada.
+
+Conferido que a sessão do expo-sqlite faz a mesma coisa na transação
+(`begin`, callback síncrono, `commit`, `rollback` e relançar em falha), então
+a atomicidade testada no Node vale no aparelho.
+
+**Provar que os testes pegam o que dizem pegar.** O teste de atomicidade
+passou de primeira, o que não prova nada. Uma cópia mutante com o adaptador
+sem transação derrubou exatamente esse teste e nenhum outro.
+
+**O driver é síncrono.** Callback `async` dentro de `db.transaction` faz o
+Drizzle lançar erro em tempo de execução — no aparelho, não no typecheck. As
+escritas atômicas usam callback síncrono com `.run()/.get()/.all()`.
+
+**`TransactionRow` tinha um `else` genérico** que trataria
+`pagamento_fatura` como receita, com sinal `+`. Virou um `Record` indexado
+pelo tipo do lançamento, que obriga o compilador a cobrar cada tipo novo.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **69 testes**, typecheck do app e dos testes, migração |
+| `npx expo export --platform android` | exit 0 |
+
+### O que NÃO foi verificado
+
+- **Nada do M2 rodou no aparelho ainda.**
+- **Pagar fatura no celular exige esperar um dia.** A tela de lançamento
+  ainda não deixa escolher a data, e só fatura fechada pode ser paga. Para
+  testar: cadastrar o cartão com **fechamento no dia de hoje**, lançar uma
+  compra (no dia do fechamento ela ainda entra), e pagar amanhã. A data
+  escolhível no S06 resolve isso.
+- **O `schema.sql` do Postgres continua nunca executado**, agora com a
+  constraint nova.
