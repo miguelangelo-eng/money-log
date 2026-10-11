@@ -2,25 +2,43 @@
  *
  *  Meta do fluxo F02: 5 toques. Valor, categoria, salvar — conta e data vêm
  *  com padrão (primeira conta, hoje). Cada toque a mais aqui é um toque a mais
- *  dez vezes por dia.
+ *  dez vezes por dia, então tudo que não é obrigatório tem padrão.
+ *
+ *  Três tipos: despesa, receita e transferência. Despesa pode ir para conta ou
+ *  cartão (com parcelas). Transferência move dinheiro entre duas contas do
+ *  próprio usuário e não tem categoria — não é gasto nem entrada.
  */
 
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { Button, SectionHeader, Txt } from '@/components/ui/primitives';
+import { DateField } from '@/components/ui/date-field';
 import { MoneyInput } from '@/components/ui/money-input';
+import { Button, Field, SectionHeader, Txt } from '@/components/ui/primitives';
 import { diaMes, mesCurto, OptionList } from '@/components/ui/widgets';
-import { addExpense, addIncome, cards, listAccounts, listCategories } from '@/data/ledger';
+import {
+  addExpense,
+  addIncome,
+  addTransfer,
+  cards,
+  listAccounts,
+  listCategories,
+} from '@/data/ledger';
 import { useAsync } from '@/data/use-async';
 import { space, useTheme } from '@/design/theme';
 import { PARCELAS_MAX, planoDeCompra } from '@/lib/card';
 import { today } from '@/lib/civil-date';
 import { formatCents } from '@/lib/money';
 
-type Kind = 'despesa' | 'receita';
+type Kind = 'despesa' | 'receita' | 'transferencia';
 type Fonte = 'conta' | 'cartao';
+
+const ROTULO_KIND: Record<Kind, string> = {
+  despesa: 'Despesa',
+  receita: 'Receita',
+  transferencia: 'Transferência',
+};
 
 export default function Novo() {
   const t = useTheme();
@@ -28,84 +46,109 @@ export default function Novo() {
 
   const [kind, setKind] = useState<Kind>('despesa');
   const [valor, setValor] = useState(0);
+  const [data, setData] = useState(today());
+  const [descricao, setDescricao] = useState('');
   const [categoriaId, setCategoriaId] = useState<string | null>(null);
   const [contaId, setContaId] = useState<string | null>(null);
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
+  const [destinoId, setDestinoId] = useState<string | null>(null);
   const [fonte, setFonte] = useState<Fonte>('conta');
   const [cartaoId, setCartaoId] = useState<string | null>(null);
   const [parcelas, setParcelas] = useState(1);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const contas = useAsync(() => listAccounts(), ['contas']);
-  const categorias = useAsync(() => listCategories(kind), ['cats', kind]);
+  const categorias = useAsync(
+    () => (kind === 'transferencia' ? Promise.resolve([]) : listCategories(kind)),
+    ['cats', kind],
+  );
   const cartoes = useAsync(() => cards.listCards(), ['cartoes']);
 
-  // Receita no cartão (estorno) ainda não tem fluxo próprio: só conta.
-  const fonteEfetiva: Fonte = kind === 'receita' ? 'conta' : fonte;
+  const listaContas = contas.data ?? [];
+  const transferencia = kind === 'transferencia';
+
+  // Cartão só para despesa: receita no cartão (estorno) ainda não tem fluxo.
+  const fonteEfetiva: Fonte = kind === 'despesa' ? fonte : 'conta';
   const temCartao = (cartoes.data?.length ?? 0) > 0;
   const cartao = cartoes.data?.find((c) => c.id === cartaoId) ?? cartoes.data?.[0] ?? null;
+
+  // Padrão: primeira conta como origem; destino, a primeira que não é a origem.
+  const contaEfetiva = contaId ?? listaContas[0]?.id ?? null;
+  const destinoEfetivo =
+    destinoId && destinoId !== contaEfetiva
+      ? destinoId
+      : (listaContas.find((c) => c.id !== contaEfetiva)?.id ?? null);
 
   /** Prévia da compra no cartão, calculada pela mesma função que grava —
    *  o que a tela promete é exatamente o que vai para o banco. */
   const plano =
     fonteEfetiva === 'cartao' && cartao && valor > 0
       ? planoDeCompra(
-          today(),
+          data,
           { diaFechamento: cartao.diaFechamento, diaVencimento: cartao.diaVencimento },
           valor,
           parcelas,
         )
       : null;
 
-  /** Sair da tela sem supor que existe pilha.
-   *
-   *  `router.back()` cru estoura "GO_BACK was not handled by any navigator"
-   *  quando esta é a primeira rota — por exemplo ao abrir o app direto num
-   *  deep link para /novo, ou depois de um reload do Metro em cima desta
-   *  tela. O fallback leva para o Início, que é o destino certo nos dois
-   *  casos. */
+  /** Sair sem supor que existe pilha: `router.back()` cru estoura quando esta
+   *  é a primeira rota (deep link direto, ou reload do Metro em cima dela). */
   function sair() {
     if (router.canGoBack()) router.back();
-    // `/index`, não `/`: com o grupo (tabs), as rotas tipadas do expo-router
-    // geram `/(tabs)/index` e `/index`, e o caminho nu `/` não existe no tipo.
-    else router.replace('/index');
+    else router.replace('/');
   }
 
-  // Padrão: primeira conta. O usuário só mexe se tiver mais de uma.
-  const contaEfetiva = contaId ?? contas.data?.[0]?.id ?? null;
+  function trocarTipo(k: Kind) {
+    setKind(k);
+    setCategoriaId(null);
+    setErro(null);
+  }
 
-  const destinoOk = fonteEfetiva === 'cartao' ? Boolean(cartao) : Boolean(contaEfetiva);
+  const destinoOk = transferencia
+    ? Boolean(contaEfetiva && destinoEfetivo)
+    : fonteEfetiva === 'cartao'
+      ? Boolean(cartao)
+      : Boolean(contaEfetiva);
   const podeSalvar = valor > 0 && destinoOk && !salvando;
 
   async function salvar() {
-    if (valor <= 0) {
-      setErro('Informe um valor maior que zero.');
-      return;
-    }
+    if (valor <= 0) return setErro('Informe um valor maior que zero.');
     if (!destinoOk) {
-      setErro(
-        fonteEfetiva === 'cartao' ? 'Escolha um cartão.' : 'Cadastre uma conta antes de lançar.',
+      return setErro(
+        transferencia
+          ? 'Transferência precisa de duas contas.'
+          : fonteEfetiva === 'cartao'
+            ? 'Escolha um cartão.'
+            : 'Cadastre uma conta antes de lançar.',
       );
-      return;
     }
     setSalvando(true);
     setErro(null);
     try {
-      if (fonteEfetiva === 'cartao' && cartao) {
+      if (transferencia) {
+        await addTransfer({
+          amountCents: valor,
+          competencia: data,
+          deContaId: contaEfetiva!,
+          paraContaId: destinoEfetivo!,
+          descricao,
+        });
+      } else if (fonteEfetiva === 'cartao' && cartao) {
         await cards.addCardPurchase({
           cardId: cartao.id,
           amountCents: valor,
-          competencia: today(),
+          competencia: data,
           parcelas,
           categoryId: categoriaId,
+          descricao,
         });
       } else {
         const payload = {
           amountCents: valor,
-          competencia: today(),
+          competencia: data,
           categoryId: categoriaId,
           accountId: contaEfetiva!,
+          descricao,
         };
         if (kind === 'despesa') await addExpense(payload);
         else await addIncome(payload);
@@ -118,62 +161,107 @@ export default function Novo() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={styles.tela}>
-      {/* S05 — tipo. Ícone sem texto num app de dinheiro gera lançamento no
-          tipo errado, então os dois são rotulados. */}
-      <View style={styles.tipos}>
-        <Button
-          label="Despesa"
-          variant={kind === 'despesa' ? 'primary' : 'secondary'}
-          onPress={() => {
-            setKind('despesa');
-            setCategoriaId(null);
-          }}
-          style={styles.metade}
-        />
-        <Button
-          label="Receita"
-          variant={kind === 'receita' ? 'primary' : 'secondary'}
-          onPress={() => {
-            setKind('receita');
-            setCategoriaId(null);
-          }}
-          style={styles.metade}
-        />
+    <ScrollView
+      style={{ backgroundColor: t.bg }}
+      contentContainerStyle={styles.tela}
+      keyboardShouldPersistTaps="handled">
+      {/* S05 — tipo. Rotulado: ícone sem texto num app de dinheiro gera
+          lançamento no tipo errado. */}
+      <View style={styles.linha}>
+        {(Object.keys(ROTULO_KIND) as Kind[]).map((k) => (
+          <Button
+            key={k}
+            label={ROTULO_KIND[k]}
+            size="sm"
+            variant={kind === k ? 'primary' : 'secondary'}
+            onPress={() => trocarTipo(k)}
+            style={styles.flex}
+          />
+        ))}
       </View>
 
-      <MoneyInput valueCents={valor} onChange={setValor} kind={kind} autoFocus />
+      <MoneyInput
+        valueCents={valor}
+        onChange={setValor}
+        kind={transferencia ? 'neutro' : kind}
+        autoFocus
+      />
 
-      <SectionHeader>Categoria</SectionHeader>
-      {categorias.loading ? (
-        <Txt variant="sm" color="textMuted">
-          {'Carregando categorias…'}
-        </Txt>
+      {transferencia ? (
+        listaContas.length < 2 ? (
+          <View style={{ marginTop: space[2] }}>
+            <Txt variant="sm" color="textMuted">
+              Transferência move dinheiro entre duas contas suas, e você tem só uma.
+            </Txt>
+            <Button
+              label="Criar outra conta"
+              variant="secondary"
+              onPress={() => router.push('/conta-nova')}
+              style={{ marginTop: space[2] }}
+            />
+          </View>
+        ) : (
+          <>
+            <SectionHeader>Sai de</SectionHeader>
+            <OptionList
+              itens={listaContas}
+              selecionadoId={contaEfetiva}
+              rotulo={(c) => c.nome}
+              onSelect={(c) => setContaId(c.id)}
+            />
+            <SectionHeader>Entra em</SectionHeader>
+            <OptionList
+              itens={listaContas.filter((c) => c.id !== contaEfetiva)}
+              selecionadoId={destinoEfetivo}
+              rotulo={(c) => c.nome}
+              onSelect={(c) => setDestinoId(c.id)}
+            />
+          </>
+        )
       ) : (
-        <OptionList
-          itens={categorias.data ?? []}
-          selecionadoId={categoriaId}
-          rotulo={(c) => c.nome}
-          cor={(c) => c.cor}
-          onSelect={(c) => setCategoriaId(c.id === categoriaId ? null : c.id)}
-        />
+        <>
+          <SectionHeader>Categoria</SectionHeader>
+          {categorias.loading && !categorias.data ? (
+            <Txt variant="sm" color="textMuted">
+              {'Carregando categorias…'}
+            </Txt>
+          ) : (
+            <OptionList
+              itens={categorias.data ?? []}
+              selecionadoId={categoriaId}
+              rotulo={(c) => c.nome}
+              cor={(c) => c.cor}
+              onSelect={(c) => setCategoriaId(c.id === categoriaId ? null : c.id)}
+            />
+          )}
+          {/* Criar categoria sem abandonar o lançamento: ao voltar, a lista
+              recarrega pelo foco. */}
+          <Button
+            label="+ Nova categoria"
+            variant="ghost"
+            size="sm"
+            onPress={() =>
+              router.push({ pathname: '/categoria-nova', params: { tipo: kind } })
+            }
+          />
+        </>
       )}
 
       {kind === 'despesa' && temCartao ? (
         <>
           <SectionHeader>Pagar com</SectionHeader>
-          <View style={styles.tipos}>
+          <View style={styles.linha}>
             <Button
               label="Conta"
               variant={fonteEfetiva === 'conta' ? 'primary' : 'secondary'}
               onPress={() => setFonte('conta')}
-              style={styles.metade}
+              style={styles.flex}
             />
             <Button
               label="Cartão"
               variant={fonteEfetiva === 'cartao' ? 'primary' : 'secondary'}
               onPress={() => setFonte('cartao')}
-              style={styles.metade}
+              style={styles.flex}
             />
           </View>
         </>
@@ -229,17 +317,29 @@ export default function Novo() {
             </Txt>
           ) : null}
         </>
-      ) : (contas.data?.length ?? 0) > 1 ? (
+      ) : !transferencia && listaContas.length > 1 ? (
         <>
           <SectionHeader>Conta</SectionHeader>
           <OptionList
-            itens={contas.data ?? []}
+            itens={listaContas}
             selecionadoId={contaEfetiva}
             rotulo={(c) => c.nome}
             onSelect={(c) => setContaId(c.id)}
           />
         </>
       ) : null}
+
+      <DateField value={data} onChange={setData} />
+
+      <View style={{ marginTop: space[3] }}>
+        <Field
+          label="Descrição (opcional)"
+          value={descricao}
+          onChangeText={setDescricao}
+          placeholder={transferencia ? 'Ex.: reserva do mês' : 'Ex.: feira de sábado'}
+          maxLength={80}
+        />
+      </View>
 
       {erro ? (
         <Txt variant="sm" color="danger" style={{ marginTop: space[2] }}>
@@ -255,20 +355,15 @@ export default function Novo() {
         size="lg"
         style={{ marginTop: space[4] }}
       />
-      <Button
-        label="Cancelar"
-        variant="ghost"
-        onPress={sair}
-        style={{ marginTop: space[2] }}
-      />
+      <Button label="Cancelar" variant="ghost" onPress={sair} style={{ marginTop: space[2] }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   tela: { padding: space[4], paddingBottom: space[8] },
-  tipos: { flexDirection: 'row', gap: space[3] },
-  metade: { flex: 1 },
+  linha: { flexDirection: 'row', gap: space[2] },
+  flex: { flex: 1 },
   parcelas: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   passo: { width: 56 },
   parcelasRotulo: { flex: 1, textAlign: 'center' },

@@ -218,3 +218,74 @@ pelo tipo do lançamento, que obriga o compilador a cobrar cada tipo novo.
   escolhível no S06 resolve isso.
 - **O `schema.sql` do Postgres continua nunca executado**, agora com a
   constraint nova.
+
+## 2026-10-11 — Grupo 1: o que travava o uso diário
+
+| tela | estado | falta |
+|---|---|---|
+| S07 Lançamento (ver, editar, excluir) | **feito** | escolher "só esta parcela" ao excluir (grupo 2) |
+| S06 Novo lançamento | **feito no essencial** | recorrência (grupo 2) |
+| S08 Contas | **feito** | editar e arquivar conta |
+| S09 Nova conta | **feito** | — |
+| S13 Categorias | **feito** | editar, excluir, subcategoria |
+| S14 Nova categoria | **parcial** | ícone por categoria |
+
+O S06 ganhou: transferência como terceiro tipo, data (hoje e ontem a um toque,
+o resto pelo seletor nativo), descrição opcional e "+ Nova categoria" sem
+abandonar o lançamento.
+
+Paridade: **46,4 / 100** (era 34,4) · must-haves **13 de 23** (eram 10).
+
+### Decisões
+
+- **O `ledger.ts` virou repositório injetável** (`src/data/ledger-repo.ts`),
+  no mesmo padrão do cartão. As telas importam os mesmos nomes de antes; o
+  `ledger.ts` só liga o repositório ao banco do aparelho. É o que permite
+  testar editar e excluir contra SQLite real, que é onde um erro corrompe
+  saldo.
+- **Excluir uma parcela apaga a compra inteira.** Uma parcela solta faria a
+  série deixar de somar o valor comprado. Escolher "só esta" é a feature
+  "ocorrência versus série" do grupo 2. Recusado se alguma parcela estiver em
+  fatura paga.
+- **Excluir pagamento de fatura = desfazer.** A fatura volta a ficar em aberto
+  na mesma transação, e dá para pagar de novo.
+- **Compra no cartão edita só categoria e descrição.** Valor e data definem a
+  fatura, gravada na escrita (nota [F]); mudar exige excluir e relançar.
+- **Categoria valida tipo** na camada de dados, como o trigger [T] do Postgres:
+  gasto não pode ser classificado como "Salário".
+- **Data pelo seletor nativo** (`@react-native-community/datetimepicker`, que
+  vem no Expo Go) em vez de calendário próprio. A conversão `Date` ↔ data civil
+  ganhou `toLocalDate` e teste: é onde o bug de fuso mora.
+- **Cor de categoria só dos 8 slots validados**, não seletor livre.
+- **Confirmação de exclusão pelo `Alert` nativo**, não pela folha inferior
+  especificada em `components.md`. Acessível e nativo nos dois sistemas;
+  a folha fica para quando houver mais de duas ações.
+- **Modo escuro corrigido na matriz** de `no` para `partial`: o app sempre
+  seguiu o tema do sistema; o que falta é a chave manual.
+
+### O que foi mais difícil do que parecia
+
+**Os testes passaram de primeira de novo**, então repeti a prova por mutação
+em duas regras: "excluir uma parcela apaga só ela" e "sem checagem de fatura
+paga". Os dois mutantes morreram nos testes certos.
+
+**O passo 5 do roteiro do M2 virou teste automático**: pagar a fatura não
+aumenta o gasto do mês.
+
+**Contraste da marca de seleção de cor**: o check branco sobre o amarelo
+`#eda100` ficaria em ~2:1. Foi para dentro de um círculo na cor da superfície.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **100 testes**, typecheck do app e dos testes, migração |
+| `npx expo export --platform android` | exit 0 |
+
+### O que NÃO foi verificado
+
+- ~~**Nada do grupo 1 rodou no aparelho ainda.**~~ **Validado no Android em
+  2026-10-11:** editar valor com o saldo acompanhando, lançar com data passada
+  pelo seletor nativo, transferência entre duas contas sem mexer no "Saiu" do
+  mês, e excluir uma parcela apagando a compra inteira.
+- O pagamento de fatura do M2 também continua sem ser visto no aparelho.

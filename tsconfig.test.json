@@ -24,8 +24,10 @@
   "include": [
     "src/lib/**/*.ts",
     "src/data/cards.ts",
-    "src/data/cards.test.ts",
-    "src/db/schema.ts"
+    "src/data/ledger-repo.ts",
+    "src/data/*.test.ts",
+    "src/db/schema.ts",
+    "src/test-support/**/*.ts"
   ],
   "exclude": [
     "node_modules"

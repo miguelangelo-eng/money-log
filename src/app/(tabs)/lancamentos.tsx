@@ -74,6 +74,7 @@ export default function Lancamentos() {
                 key={tx.id}
                 tx={tx}
                 categoria={tx.categoryId ? porId.get(tx.categoryId) : undefined}
+                onPress={() => router.push(`/lancamento/${tx.id}`)}
               />
             ))}
           </View>

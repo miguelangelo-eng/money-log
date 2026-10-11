@@ -220,6 +220,7 @@ export default function Fatura() {
                 key={tx.id}
                 tx={tx}
                 categoria={tx.categoryId ? porCategoria.get(tx.categoryId) : undefined}
+                onPress={() => router.push(`/lancamento/${tx.id}`)}
               />
             ))
           )}

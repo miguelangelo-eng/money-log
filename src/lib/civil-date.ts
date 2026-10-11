@@ -94,6 +94,16 @@ export function monthStart(d: CivilDate): CivilDate {
   return format({ year, month, day: 1 });
 }
 
+/** Data civil -> `Date` à MEIA-NOITE LOCAL do dia, para o seletor nativo.
+ *
+ *  Construído com o construtor de componentes (ano, mês, dia), que é local.
+ *  `new Date('2026-10-01')` seria meia-noite UTC — 21h do dia 30 em São
+ *  Paulo — e o seletor abriria no dia anterior. */
+export function toLocalDate(d: CivilDate): Date {
+  const { year, month, day } = parse(d);
+  return new Date(year, month - 1, day);
+}
+
 /** Hoje, no fuso do aparelho, como data civil.
  *  Usa os getters locais de propósito: "hoje" para o usuário é o dia do
  *  relógio dele, não o dia em UTC. */

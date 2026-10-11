@@ -95,6 +95,21 @@ export default function Inicio() {
       {(contas.data ?? []).map((c) => (
         <BalanceCard key={c.id} titulo={c.nome} saldoCents={c.saldoCents} />
       ))}
+
+      <View style={styles.par}>
+        <Button
+          label="Contas"
+          variant="secondary"
+          onPress={() => router.push('/contas')}
+          style={styles.metade}
+        />
+        <Button
+          label="Categorias"
+          variant="secondary"
+          onPress={() => router.push('/categorias')}
+          style={styles.metade}
+        />
+      </View>
     </ScrollView>
   );
 }

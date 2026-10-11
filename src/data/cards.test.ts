@@ -6,110 +6,26 @@
  *  único, chave estrangeira e atomicidade de transação são exercitados, e não
  *  imaginados.
  *
- *  O adaptador abaixo dá ao node:sqlite a interface que o driver
- *  better-sqlite3 do Drizzle espera (prepare/transaction e
- *  run/all/get/raw no statement). O driver é síncrono, como o do expo.
- *  Monta-se a sessão direto, sem o driver.js, porque este importa o pacote
- *  nativo better-sqlite3, que não está instalado.
+ *  O banco de teste e o adaptador estão em src/test-support/sqlite.ts.
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
-import { BaseSQLiteDatabase, SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
-import { BetterSQLiteSession } from 'drizzle-orm/better-sqlite3/session';
+import { bancoDeTeste, TS } from '@/test-support/sqlite';
 
-import { createCardsRepo, type SyncDb } from './cards';
-
-// ---------------------------------------------------------------------------
-// Adaptador node:sqlite -> interface do better-sqlite3
-// ---------------------------------------------------------------------------
-
-type Param = string | number | bigint | null | Uint8Array;
-
-function statement(s: StatementSync) {
-  const modo = (arrays: boolean) => ({
-    run: (...p: Param[]) => {
-      s.setReturnArrays(false);
-      return s.run(...p);
-    },
-    all: (...p: Param[]) => {
-      s.setReturnArrays(arrays);
-      return s.all(...p);
-    },
-    get: (...p: Param[]) => {
-      s.setReturnArrays(arrays);
-      return s.get(...p);
-    },
-  });
-  return { ...modo(false), raw: () => modo(true) };
-}
-
-function clienteNodeSqlite(raw: DatabaseSync) {
-  return {
-    prepare: (q: string) => statement(raw.prepare(q)),
-    transaction<A, R>(fn: (arg: A) => R) {
-      const em = (modo: string) => (arg: A): R => {
-        raw.exec(`begin ${modo}`);
-        try {
-          const r = fn(arg);
-          raw.exec('commit');
-          return r;
-        } catch (e) {
-          raw.exec('rollback');
-          throw e;
-        }
-      };
-      return { deferred: em('deferred'), immediate: em('immediate'), exclusive: em('exclusive') };
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Ambiente de teste: banco novo, migração real, dois usuários
-// ---------------------------------------------------------------------------
+import { createCardsRepo } from './cards';
 
 const U1 = 'usuario-1';
 const U2 = 'usuario-2';
-const TS = '2026-10-10T12:00:00.000Z';
 
+/** Banco novo por teste, com a migração real e uma conta para cada usuário. */
 function ambiente() {
-  const raw = new DatabaseSync(':memory:');
-  raw.exec('pragma foreign_keys = on;');
-
-  for (const f of readdirSync('drizzle').filter((x) => x.endsWith('.sql')).sort()) {
-    const stmts = readFileSync(join('drizzle', f), 'utf8')
-      .split('--> statement-breakpoint')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const s of stmts) raw.exec(s);
-  }
-
-  const dialect = new SQLiteSyncDialect();
-  const session = new BetterSQLiteSession(clienteNodeSqlite(raw), dialect, undefined, {});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = new (BaseSQLiteDatabase as any)('sync', dialect, session, undefined) as SyncDb;
-
+  const { raw, db, contar, conta } = bancoDeTeste();
   const repo = createCardsRepo({ db, newId: randomUUID, nowIso: () => TS, userId: U1 });
-
-  const conta = (id: string, userId: string) =>
-    raw
-      .prepare(
-        `insert into accounts (id,user_id,nome,tipo,icone,saldo_inicial_cents,arquivada,created_at,updated_at)
-         values (?,?,?,?,?,?,?,?,?)`,
-      )
-      .run(id, userId, `Conta ${id}`, 'corrente', 'wallet', 0, 0, TS, TS);
-
   conta('conta-u1', U1);
   conta('conta-u2', U2);
-
-  const contar = (sqlText: string, ...p: Param[]) =>
-    Number((raw.prepare(sqlText).get(...p) as { n: number }).n);
-
   return { raw, db, repo, contar };
 }
 

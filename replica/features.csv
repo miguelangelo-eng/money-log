@@ -1,19 +1,19 @@
 feature,area,priority,original,clone,notes
 Cadastro com e-mail e senha,onboarding,must,yes,no,
 Isolamento total dos dados entre os dois usuários,segurança,must,yes,no,cada linha pertence a um user_id e ninguém mais lê — a regra de acesso é o requisito que substituiu o compartilhamento
-Criar conta bancária com saldo inicial,contas,must,yes,no,
+Criar conta bancária com saldo inicial,contas,must,yes,yes,S08/S09; saldo inicial pode ser negativo (cheque especial)
 Lista de contas com saldo consolidado,contas,must,yes,yes,"S03; saldo = inicial + receitas - despesas +/- transferencias, so o pago"
 Lançar despesa manual,lançamentos,must,yes,yes,S05+S06 em src/app/novo.tsx; data futura vira nao-pago automaticamente
 Lançar receita manual,lançamentos,must,yes,yes,"mesma tela, seletor de tipo"
-Transferência entre contas,lançamentos,must,yes,no,não pode entrar no relatório como receita nem como despesa
-Editar e excluir lançamento,lançamentos,must,yes,no,
+Transferência entre contas,lançamentos,must,yes,yes,uma linha com origem e destino; nao entra em gasto nem entrada do mes
+Editar e excluir lançamento,lançamentos,must,yes,yes,"S07; compra no cartao edita so categoria e descricao, e excluir apaga a compra inteira"
 Marcar lançamento como pago ou pendente,lançamentos,must,yes,no,separa previsto de realizado
 Despesa parcelada em N vezes,lançamentos,must,yes,partial,"so no cartao, ate 24x; parcelado em conta nao existe ainda"
 Despesa fixa recorrente,lançamentos,must,yes,no,
-Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,no,o original pergunta ao usuário; copiar esse comportamento
+Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,no,"hoje excluir uma parcela apaga a serie inteira, sem escolha"
 Lista do mês com seletor de mês,lançamentos,must,yes,yes,"S04 em src/app/lancamentos.tsx, agrupada por dia"
 Categorias padrão de despesa e receita,categorias,must,yes,yes,"10 categorias semeadas no primeiro boot, nomes proprios"
-Criar categoria própria com ícone e cor,categorias,must,yes,no,
+Criar categoria própria com ícone e cor,categorias,must,yes,partial,cor dos 8 slots validados; icone fica para quando houver conjunto de icones
 Cadastrar cartão com limite fechamento e vencimento,cartões,must,yes,yes,S11; previa ao vivo de em que fatura cai uma compra de hoje
 Lançar compra no cartão,cartões,must,yes,yes,S06 com Pagar com: Conta | Cartao; invoice_id gravado na escrita
 Fatura do cartão com total e navegação entre faturas,cartões,must,yes,yes,"S12; status derivado de datas, so paga e persistido"
@@ -32,7 +32,7 @@ Alerta de limite de categoria estourado,alertas,should,yes,no,
 Anexar comprovante ao lançamento,lançamentos,should,yes,no,
 Busca e filtro de lançamentos,lançamentos,should,yes,no,
 Edição offline com fila de sincronização,sync,should,no,no,lançar sem sinal no caixa do mercado e sincronizar depois — sem dois editores o conflito é muito mais simples
-Modo escuro,preferências,should,yes,no,o Mobills destaca isso na listagem (fonte 12)
+Modo escuro,preferências,should,yes,partial,segue o tema do sistema em todas as telas; falta chave manual
 Subcategorias,categorias,should,yes,no,
 Exportar os próprios dados em CSV,dados,should,yes,no,sem lock-in — oposto do que a crítica da fonte 12 reclama
 Metas de economia com valor alvo,metas,could,yes,no,diferente de limite de gasto

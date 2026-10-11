@@ -95,6 +95,15 @@ export default function RootLayout() {
       />
       {/* O título real (nome do cartão) é definido pela própria tela. */}
       <Stack.Screen name="cartao/[id]" options={{ title: 'Cartão' }} />
+      {/* Título real (tipo do lançamento) definido pela própria tela. */}
+      <Stack.Screen name="lancamento/[id]" options={{ title: 'Lançamento' }} />
+      <Stack.Screen name="contas" options={{ title: 'Contas' }} />
+      <Stack.Screen name="conta-nova" options={{ title: 'Nova conta', presentation: 'modal' }} />
+      <Stack.Screen name="categorias" options={{ title: 'Categorias' }} />
+      <Stack.Screen
+        name="categoria-nova"
+        options={{ title: 'Nova categoria', presentation: 'modal' }}
+      />
     </Stack>
   );
 }
