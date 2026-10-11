@@ -6,12 +6,26 @@
  *  celular é um fluxo pior.
  *
  *  O valor guardado é SEMPRE centavos inteiros. Nunca string, nunca float.
+ *
+ *  Foco visível: o TextInput de verdade é invisível, então o estado "estou
+ *  digitando aqui" tem de ser desenhado — moldura como a do Field (accent e
+ *  2px com foco) e um cursor piscando depois do número. Sem isso não havia
+ *  como saber se o teclado estava escrevendo no valor.
  */
 
-import { useRef } from 'react';
-import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
-import { space, type as typeScale, useTheme } from '@/design/theme';
+import { radius, space, type as typeScale, useTheme } from '@/design/theme';
 import { formatCents, popDigit, pushDigit, type Cents } from '@/lib/money';
 
 import { Txt } from './primitives';
@@ -32,6 +46,38 @@ export function MoneyInput({
 }) {
   const t = useTheme();
   const input = useRef<TextInput>(null);
+  const [focado, setFocado] = useState(false);
+  const piscar = useRef(new Animated.Value(1)).current;
+
+  // No Android, fechar o teclado pelo "voltar" NÃO tira o foco do TextInput.
+  // Aí a moldura continuaria dizendo "digitando" e tocar de novo no valor não
+  // reabriria o teclado (focus() num campo já focado não faz nada).
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => input.current?.blur());
+    return () => sub.remove();
+  }, []);
+
+  // Cursor piscando enquanto focado; parado para quem pediu menos movimento.
+  useEffect(() => {
+    if (!focado) return;
+    let animacao: Animated.CompositeAnimation | null = null;
+    let vivo = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((reduzir) => {
+      if (!vivo || reduzir) return;
+      animacao = Animated.loop(
+        Animated.sequence([
+          Animated.timing(piscar, { toValue: 0, duration: 500, delay: 300, useNativeDriver: true }),
+          Animated.timing(piscar, { toValue: 1, duration: 0, delay: 400, useNativeDriver: true }),
+        ]),
+      );
+      animacao.start();
+    });
+    return () => {
+      vivo = false;
+      animacao?.stop();
+      piscar.setValue(1);
+    };
+  }, [focado, piscar]);
   const cor = kind === 'despesa' ? t.danger : kind === 'receita' ? t.success : t.text;
   const sinal = kind === 'despesa' ? '−' : kind === 'receita' ? '+' : '';
 
@@ -50,7 +96,20 @@ export function MoneyInput({
       // O sinal é lido junto: a cor NÃO é a portadora do significado.
       accessibilityLabel={`${kind === 'neutro' ? 'valor' : kind} de ${formatCents(valueCents)}`}
       style={styles.wrap}>
-      <View style={styles.linha}>
+      <Txt variant="sm" style={{ fontWeight: '600', marginBottom: space[1] }}>
+        Valor
+      </Txt>
+      <View
+        style={[
+          styles.caixa,
+          {
+            backgroundColor: t.surface,
+            borderColor: focado ? t.accent : t.borderInput,
+            borderWidth: focado ? 2 : 1,
+            // Compensa a borda mais grossa: o número não pula ao focar.
+            padding: focado ? space[3] - 1 : space[3],
+          },
+        ]}>
         {sinal ? (
           <Txt variant="xl" color={kind === 'despesa' ? 'danger' : 'success'}>
             {sinal}
@@ -62,6 +121,9 @@ export function MoneyInput({
           numberOfLines={1}>
           {formatCents(valueCents)}
         </Txt>
+        {focado ? (
+          <Animated.View style={[styles.cursor, { backgroundColor: t.accent, opacity: piscar }]} />
+        ) : null}
       </View>
 
       <TextInput
@@ -78,14 +140,16 @@ export function MoneyInput({
         onKeyPress={(e) => {
           if (e.nativeEvent.key === 'Backspace') onKeyPress('Backspace');
         }}
+        onFocus={() => setFocado(true)}
+        onBlur={() => setFocado(false)}
         style={styles.escondido}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       />
 
-      {valueCents === 0 ? (
+      {!focado ? (
         <Txt variant="xs" color="textMuted" style={{ marginTop: space[1] }}>
-          Toque para digitar o valor
+          {valueCents === 0 ? 'Toque para digitar o valor' : 'Toque para alterar'}
         </Txt>
       ) : null}
     </Pressable>
@@ -93,8 +157,9 @@ export function MoneyInput({
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingVertical: space[4] },
-  linha: { flexDirection: 'row', alignItems: 'baseline' },
+  wrap: { paddingVertical: space[3] },
+  caixa: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md },
+  cursor: { width: 2, height: typeScale.money.fontSize, marginLeft: space[1] },
   escondido: {
     position: 'absolute',
     opacity: 0,
