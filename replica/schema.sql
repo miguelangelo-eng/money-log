@@ -514,6 +514,39 @@ revoke execute on function pull_changes(timestamptz) from public, anon;
 grant execute on function push_changes(jsonb) to authenticated;
 grant execute on function pull_changes(timestamptz) to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- [A] Privilégios: explícitos, não herdados.
+--
+-- O projeto é criado com "Automatically expose new tables" DESMARCADO, como o
+-- Supabase recomenda. Então nada aqui depende de grant automático: o que o
+-- app precisa está listado abaixo, e o resto é negado. Os testes rodam no
+-- pior caso (sem grant automático nenhum) para provar que isto basta.
+--
+-- A RLS decide QUAIS linhas; estes grants decidem QUAIS operações.
+--   authenticated: select, insert, update. Sem DELETE: o app só faz soft
+--                  delete, então um token vazado não apaga histórico.
+--   anon:          nada. Sem login não há o que ler.
+-- O revoke primeiro deixa o resultado igual com a opção marcada ou não.
+-- ---------------------------------------------------------------------------
+revoke all on all tables in schema public from anon, authenticated;
+
+do $$
+declare t text;
+begin
+  foreach t in array sync_tabelas() loop
+    execute format('grant select, insert, update on %I to authenticated', t);
+  end loop;
+end $$;
+
+-- Funções chamadas por dentro do push/pull e dos triggers rodam como o
+-- usuário logado (security invoker) e precisam de EXECUTE.
+revoke execute on function sync_tabelas() from public, anon;
+grant execute on function sync_tabelas() to authenticated;
+revoke execute on function toca_updated_at() from public, anon;
+grant execute on function toca_updated_at() to authenticated;
+revoke execute on function tx_valida_categoria() from public, anon;
+grant execute on function tx_valida_categoria() to authenticated;
+
 -- ===========================================================================
 -- NOTAS DE DECISÃO
 -- ===========================================================================

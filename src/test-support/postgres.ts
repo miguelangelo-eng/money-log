@@ -9,7 +9,8 @@
  *  O que é stub, imitando o Supabase:
  *    - o schema `auth`, com `auth.users` e `auth.uid()` lendo o `sub` do JWT
  *      em `request.jwt.claims`, como o PostgREST faz;
- *    - os papéis `anon` e `authenticated`, com os grants padrão do Supabase.
+ *    - os papéis `anon` e `authenticated`, SEM grants automáticos (o projeto
+ *      é criado com "Automatically expose new tables" desmarcado).
  *  O resto — tabelas, constraints, triggers, RLS, funções de sync — é o
  *  arquivo real, sem mudança.
  *
@@ -42,13 +43,13 @@ const STUB_SUPABASE = `
   grant usage on schema auth to anon, authenticated;
   grant execute on function auth.uid() to anon, authenticated;
 
-  -- O Supabase dá estes grants por padrão no schema public. Quem protege os
-  -- dados é a RLS, não a falta de grant.
+  -- O pior caso do Supabase: projeto criado com "Automatically expose new
+  -- tables" DESMARCADO. Nenhum grant automático em tabela, e nem o EXECUTE
+  -- padrão do Postgres para PUBLIC em função. Tudo que o app precisa tem de
+  -- vir de grant explícito no schema.sql — e estes testes provam que vem.
   grant usage on schema public to anon, authenticated;
   alter default privileges in schema public
-    grant all on tables to anon, authenticated;
-  alter default privileges in schema public
-    grant execute on functions to anon, authenticated;
+    revoke execute on functions from public;
 `;
 
 export const SCHEMA_SQL = readFileSync('replica/schema.sql', 'utf8');

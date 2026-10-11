@@ -78,51 +78,105 @@ Lista completa em [`replica/features.csv`](replica/features.csv).
 
 ## Supabase (M1) — passo a passo
 
-Sem estas variáveis o app roda só local, como antes: nada trava enquanto o
-projeto não existe.
+Sem as chaves do passo 5, o app roda só local, como antes: nada trava
+enquanto o projeto não existe. A interface do Supabase muda de vez em quando;
+se um menu não estiver com o nome daqui, procure pelo equivalente.
 
-1. **Criar o projeto** em supabase.com (plano gratuito). Região: São Paulo
-   (`sa-east-1`). Guarde a senha do banco num gerenciador de senhas; o app não
-   a usa.
-2. **Aplicar o schema:** SQL Editor → New query → colar
-   [`replica/schema.sql`](replica/schema.sql) inteiro → Run. Tem que terminar
-   sem erro. Ele já rodou num Postgres real (PGlite), mas não no Supabase.
-3. **Confirmação de e-mail:** Authentication → Sign In / Providers → Email.
-   Com "Confirm email" ligado, o cadastro manda um link e só entra depois de
-   clicar nele (o link abre uma página de erro no navegador, mas confirma).
-   Para duas pessoas que se conhecem, desligar é razoável.
-4. **Chaves:** Project Settings → API Keys. Criar `.env.local` na raiz do
-   projeto (fica fora do git):
+### 1. Conta
 
-   ```
-   EXPO_PUBLIC_SUPABASE_URL=https://<id-do-projeto>.supabase.co
-   EXPO_PUBLIC_SUPABASE_KEY=<publishable key, ou a anon>
-   ```
+Em supabase.com → **Start your project**. Entrar com GitHub ou e-mail. Se
+pedir uma organização, qualquer nome (ex.: "Pessoal"), plano **Free**.
 
-   **Nunca** a `secret` / `service_role`: ela ignora a RLS e iria dentro do
-   app.
-5. **Reiniciar o Metro com cache limpo** (`npm.cmd start -- --clear`): as
-   variáveis entram no bundle na hora do build.
-6. **No celular:** a tela de entrar aparece. Criar conta. Os lançamentos que
-   já estão no aparelho sobem para a conta. "Backup e conta" (no Início)
-   mostra último envio e o que está na fila.
-7. **Critério de pronto do M1, com as contas reais:**
-   - desinstalar o app, reinstalar, entrar: os dados voltam;
-   - a outra pessoa cria a própria conta no celular dela;
-   - **isolamento**, no SQL Editor (troque os dois ids, que estão em
-     Authentication → Users):
+### 2. Projeto
 
-     ```sql
-     begin;
-     set local role authenticated;
-     select set_config('request.jwt.claims', '{"sub":"<id-da-pessoa-B>"}', true);
-     select count(*) from transactions where user_id = '<id-da-pessoa-A>';
-     rollback;
-     ```
+**New project**:
 
-     Tem que dar **0**. Se der mais que zero, a RLS não está valendo e nada
-     mais importa. (O mesmo teste roda em todas as tabelas no
-     `src/sync/sync.test.ts`, mas lá o `auth` é imitação.)
+- **Name:** `money-log` (é só um rótulo; não precisa bater com nada no código);
+- **Database Password:** *Generate a password* e guardar num gerenciador de
+  senhas. O app não usa essa senha, mas ela é a única entrada direta no banco;
+- **Region:** **South America (São Paulo)**, `sa-east-1`;
+- **Security:**
+  - **Enable Data API: marcado.** O app fala com o banco por ela;
+  - **Automatically expose new tables: desmarcado**, como o Supabase
+    recomenda. As permissões estão explícitas no `schema.sql` (nota [A]):
+    o usuário logado lê, insere e atualiza, mas não apaga; o anônimo não faz
+    nada. Os testes rodam com e sem essa opção;
+  - **Enable automatic RLS: marcado.** Rede de segurança para tabelas
+    futuras; o `schema.sql` já liga e força a RLS em todas as atuais.
+
+**Create new project** e esperar 1–2 minutos.
+
+### 3. Schema
+
+**SQL Editor** → **New query** → colar [`replica/schema.sql`](replica/schema.sql)
+inteiro (Ctrl+A, Ctrl+C no VS Code) → **Run**.
+
+- Tem que terminar em **"Success. No rows returned"**.
+- Se avisar de operações destrutivas, pode confirmar: o projeto está vazio.
+- Se der erro, guardar a mensagem inteira. O schema já rodou num Postgres
+  real (PGlite), mas não no Supabase.
+
+### 4. Confirmação de e-mail (decisão)
+
+**Authentication** → **Sign In / Providers** → **Email** → "Confirm email":
+
+- **desligado:** o cadastro entra direto. Razoável para duas pessoas que se
+  conhecem. **Save**;
+- **ligado:** o cadastro manda um link. Clicar nele abre uma página de erro
+  ("localhost") no navegador, mas a conta fica confirmada; aí é só entrar no
+  app.
+
+### 5. Chaves e `.env.local`
+
+**Project Settings** (engrenagem) → **API Keys**. A URL pode estar em
+**Data API** ou no botão **Connect**, no topo do painel. Copiar:
+
+- **Project URL** — `https://<id-do-projeto>.supabase.co`;
+- **Publishable key** — começa com `sb_publishable_`. Se só houver o formato
+  antigo, a **anon public** (longa, começa com `eyJ`).
+
+**Nunca** a `secret` / `service_role`: ela ignora a RLS e iria dentro do app.
+
+Criar `.env.local` na raiz do projeto (fica fora do git, pelo `.gitignore`),
+sem aspas e sem espaço em volta do `=`:
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<id-do-projeto>.supabase.co
+EXPO_PUBLIC_SUPABASE_KEY=<publishable key, ou a anon>
+```
+
+### 6. Rodar
+
+```powershell
+npm.cmd start -- --clear
+```
+
+O `--clear` é obrigatório aqui: as variáveis entram no bundle na hora do
+build, e o cache do Metro manteria o bundle sem elas.
+
+No Expo Go, em vez do Início aparece a **tela de entrar**. "Ainda não tenho
+conta" → e-mail e senha. Os lançamentos que já estão no aparelho sobem para a
+conta. Conferir em **Início → Backup e conta**: "Último envio" com a hora de
+agora e "Aguardando envio: nada".
+
+### 7. Critério de pronto do M1, com as contas reais
+
+- desinstalar o app (ou limpar os dados do Expo Go), reinstalar, entrar: os
+  dados voltam;
+- a outra pessoa cria a própria conta no celular dela;
+- **isolamento**, no SQL Editor. Os dois ids estão em Authentication → Users:
+
+  ```sql
+  begin;
+  set local role authenticated;
+  select set_config('request.jwt.claims', '{"sub":"<id-da-pessoa-B>"}', true);
+  select count(*) from transactions where user_id = '<id-da-pessoa-A>';
+  rollback;
+  ```
+
+  Tem que dar **0**. Se der mais que zero, a RLS não está valendo e nada mais
+  importa. (O mesmo teste roda em todas as tabelas no
+  `src/sync/sync.test.ts`, mas lá o `auth` é imitação.)
 
 ## Como o sync funciona
 

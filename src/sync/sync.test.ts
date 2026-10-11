@@ -130,8 +130,15 @@ test('RLS: uma pessoa não enxerga NENHUMA linha da outra, em nenhuma tabela', a
 
   for (const t of TABELAS) {
     assert.equal(await total(bia, t), 0, `bia enxergou linhas de ${t}`);
-    assert.equal(await total(null, t), 0, `anônimo enxergou linhas de ${t}`);
+    // Sem login não há nem consulta: o anon não tem grant em tabela nenhuma.
+    await assert.rejects(total(null, t), /permission denied/, `anônimo consultou ${t}`);
   }
+
+  // Logado, ninguém apaga linha fisicamente, nem a própria: só soft delete.
+  await assert.rejects(
+    comoUsuario(pg, ana, (tx) => tx.query('delete from transactions')),
+    /permission denied/,
+  );
 
   const pullDaBia = await transportePg(pg, bia).pull(null);
   for (const t of TABELAS) assert.deepEqual(pullDaBia.tabelas[t], [], `pull da bia trouxe ${t}`);
