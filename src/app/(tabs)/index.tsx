@@ -110,6 +110,7 @@ export default function Inicio() {
           style={styles.metade}
         />
       </View>
+      <Button label="Backup e conta" variant="secondary" onPress={() => router.push('/backup')} />
     </ScrollView>
   );
 }

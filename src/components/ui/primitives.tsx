@@ -15,6 +15,7 @@ import {
   type KeyboardTypeOptions,
   type PressableProps,
   type StyleProp,
+  type TextInputProps,
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
@@ -300,6 +301,9 @@ export function Field({
   erro,
   maxLength,
   dica,
+  secureTextEntry,
+  autoCapitalize,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -309,6 +313,9 @@ export function Field({
   erro?: string | null;
   maxLength?: number;
   dica?: string;
+  secureTextEntry?: boolean;
+  autoCapitalize?: TextInputProps['autoCapitalize'];
+  autoComplete?: TextInputProps['autoComplete'];
 }) {
   const t = useTheme();
   const [focado, setFocado] = useState(false);
@@ -326,6 +333,9 @@ export function Field({
         placeholderTextColor={t.textMuted}
         keyboardType={keyboardType}
         maxLength={maxLength}
+        secureTextEntry={secureTextEntry}
+        autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
         onFocus={() => setFocado(true)}
         onBlur={() => setFocado(false)}
         accessibilityLabel={label}

@@ -289,3 +289,76 @@ aumenta o gasto do mês.
   pelo seletor nativo, transferência entre duas contas sem mexer no "Saiu" do
   mês, e excluir uma parcela apagando a compra inteira.
 - O pagamento de fatura do M2 também continua sem ser visto no aparelho.
+
+## 2026-10-11 — M1: sync e backup (código pronto, falta o Supabase)
+
+Login por e-mail e senha, fila de alterações no aparelho, `push_changes` e
+`pull_changes` no Postgres, tela "Backup e conta". Tudo testado de ponta a
+ponta **sem** o Supabase: o lado do servidor roda num Postgres de verdade em
+memória (PGlite, Postgres compilado para WASM), com o `schema.sql` inteiro.
+
+### O schema.sql rodou pela primeira vez
+
+Aplicado no PGlite com um stub do `auth` do Supabase (`auth.users`,
+`auth.uid()` lendo o `sub` do JWT, papéis `anon`/`authenticated` com os grants
+padrão). Os pontos de risco listados no SETUP passaram como estavam: os dois
+`DO $$`, o `alerts_dedupe` e as constraints da nota [G]. Mudou:
+
+- **`create extension pgcrypto` removido.** `gen_random_uuid()` é nativo desde
+  o Postgres 13, e o PGlite não traz a extensão.
+- **Bug: o trigger de `updated_at` só rodava no update.** No insert, a linha
+  ficava com o relógio do celular, e o cursor do pull (relógio do servidor)
+  podia pulá-la. Agora é `before insert or update`.
+- **Bug: a FK `invoices.pagamento_tx_id` não era adiável.** Fatura paga e
+  pagamento apontam um para o outro e sobem no mesmo lote; qualquer ordem
+  violava uma das duas. Agora é `deferrable initially deferred`.
+
+### Decisões
+
+- **O `user_id` local continua fixo; o servidor carimba o `auth.uid()`** no
+  push (nota [Y]). Os repositórios não mudaram uma linha, os dados de antes do
+  login sobem sem reescrita, e um app adulterado não grava em nome de outro.
+- **Triggers do SQLite alimentam a fila** (migração 0002), não os
+  repositórios. Nenhuma escrita escapa por esquecimento. Durante o pull,
+  `sync_state.aplicando = 1` desliga os triggers, senão cada linha baixada
+  voltaria no push seguinte.
+- **O push lê a linha na hora do envio**, não guarda cópia na fila: dez
+  edições viram um upsert. Só limpa a fila até o `seq` lido; o que foi editado
+  durante o envio fica para o próximo.
+- **O pull não sobrescreve linha com alteração na fila.** A versão do aparelho
+  é mais nova e sobe no próximo push.
+- **O pull relê um minuto antes do cursor.** `now()` é o início da transação,
+  não o commit: um push concorrente poderia gravar `updated_at` menor que o
+  cursor e ficar invisível. Reaplicar é idempotente.
+- **Primeiro login decide a origem dos dados:** aparelho vazio baixa, nuvem
+  vazia sobe, os dois vazios semeia, **os dois com dados recusa** e oferece
+  ficar com a nuvem. Juntar duplicaria categorias padrão e misturaria
+  históricos.
+- **Aparelho tem dono** (`sync_state.dono`). Outra conta não entra sem apagar
+  os dados locais, e o motor recusa sincronizar com uma sessão que não seja a
+  do dono — senão o carimbo do servidor subiria os dados para a conta errada.
+- **Com dono, o app abre sem sessão e sem rede.** O login só é exigido no
+  primeiro uso. Se dependesse da sessão, token vencido + offline = app
+  inutilizável.
+- **Sair apaga os dados do aparelho**, avisando quantas alterações não subiram.
+- **Sem Supabase configurado, o app roda só local**, como antes. A atualização
+  não trava o celular enquanto o projeto não existe.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **114 testes** (14 novos, contra SQLite + Postgres reais) |
+| `npx expo export --platform android` | exit 0; migrações 0001/0002 no bundle |
+| mutação | 7 de 7 mutantes mortos: RLS desligada, touch só no update, FK não adiada, sem carimbo, trigger sem supressão, pull atropelando a fila, push limpando a fila no erro |
+
+### O que NÃO foi verificado
+
+- **Nada rodou no Supabase de verdade.** O PGlite é Postgres real, mas o
+  `auth` é stub e o PostgREST não está no caminho. O formato que o
+  `supabase.rpc` devolve foi imitado (JSON com instantes em texto), não visto.
+- **Nada do M1 rodou no aparelho**: login, sync em segundo plano, a tela de
+  backup, o `react-native-url-polyfill`.
+- O critério de pronto do M1 — desinstalar, reinstalar, logar e os dados
+  voltarem; e uma conta não ler nada da outra — está provado nos testes, mas
+  não com as duas contas reais.

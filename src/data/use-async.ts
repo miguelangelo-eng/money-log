@@ -1,5 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
+
+import { ouvirMudancas } from '@/data/revisao';
 
 export interface AsyncState<T> {
   data: T | null;
@@ -15,20 +17,33 @@ export interface AsyncState<T> {
  *  em tela nenhuma. `useLiveQuery` exigiria expor construtor de query para a
  *  UI, o que amarra a tela ao Drizzle.
  *
- *  Refocar cobre o caso do slice: salvar, voltar, lista atualizada.
+ *  Refocar cobre o caso do slice: salvar, voltar, lista atualizada. O que
+ *  chega do servidor com a tela aberta vem por `ouvirMudancas` (revisao.ts):
+ *  recarrega sem spinner, porque a pessoa já está olhando os dados.
  */
 export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncState<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [tick, setTick] = useState(0);
+  const silencioso = useRef(false);
+
+  useEffect(
+    () =>
+      ouvirMudancas(() => {
+        silencioso.current = true;
+        setTick((n) => n + 1);
+      }),
+    [],
+  );
 
   const chave = JSON.stringify(deps);
 
   useFocusEffect(
     useCallback(() => {
       let vivo = true;
-      setLoading(true);
+      if (!silencioso.current) setLoading(true);
+      silencioso.current = false;
       fn()
         .then((r) => {
           if (!vivo) return;

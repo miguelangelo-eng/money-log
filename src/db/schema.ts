@@ -271,9 +271,13 @@ export const pushTokens = sqliteTable('push_tokens', {
 
 /** SÓ LOCAL — não existe no Postgres.
  *
- *  Fila append-only das mudanças locais aguardando push. É o que faz a edição
- *  offline funcionar sem perder nada: a escrita vai para o SQLite e para o
- *  outbox na mesma transação, e o sync drena a fila quando houver rede.
+ *  Fila das linhas alteradas aguardando push. Quem a alimenta são TRIGGERS do
+ *  SQLite (migração 0002), não os repositórios: toda escrita entra na fila na
+ *  mesma transação, sem depender de cada função lembrar de enfileirar.
+ *
+ *  `payload` fica vazio: o push lê a linha como ela está NA HORA do envio, e
+ *  dez edições da mesma linha viram um upsert só. O op é sempre 'upsert'
+ *  porque exclusão é soft delete — um update de deleted_at.
  */
 export const outbox = sqliteTable(
   'outbox',
@@ -282,21 +286,27 @@ export const outbox = sqliteTable(
     tabela: text('tabela').notNull(),
     rowId: text('row_id').notNull(),
     op: text('op', { enum: ['upsert', 'delete'] }).notNull(),
-    payload: text('payload').notNull(), // json da linha
+    payload: text('payload').notNull(),
     tentativas: integer('tentativas').notNull().default(0),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('outbox_ordem_idx').on(t.seq)],
 );
 
-/** Cursor do sync. Uma linha só.
- *  O valor guardado é o `now()` do SERVIDOR, nunca o relógio do aparelho:
- *  relógio de celular atrasa, adianta, e o usuário mexe nele. */
+/** Estado do sync. Uma linha só (id = 1).
+ *  O cursor é o `now()` do SERVIDOR, nunca o relógio do aparelho: relógio de
+ *  celular atrasa, adianta, e o usuário mexe nele. */
 export const syncState = sqliteTable('sync_state', {
   id: integer('id').primaryKey(), // sempre 1
   cursor: text('cursor'),
   ultimoPushEm: text('ultimo_push_em'),
   ultimoPullEm: text('ultimo_pull_em'),
+  /** auth.uid() de quem é dono dos dados deste aparelho. Nulo até o primeiro
+   *  login. Outra pessoa logando aqui é recusada em vez de misturar dados. */
+  dono: text('dono'),
+  /** 1 enquanto o pull aplica linhas do servidor. Os triggers do outbox não
+   *  disparam nesse intervalo — senão cada linha baixada voltaria no push. */
+  aplicando: integer('aplicando').notNull().default(0),
 });
 
 export type Transaction = typeof transactions.$inferSelect;

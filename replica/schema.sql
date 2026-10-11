@@ -9,7 +9,7 @@
 --   exclusão      -> soft delete (deleted_at). Exigido pelo sync. Ver [S].
 --   escopo        -> user_id em TODA tabela, com RLS. Ver [R].
 
-create extension if not exists pgcrypto;
+-- gen_random_uuid() é nativo desde o Postgres 13: não precisa de pgcrypto.
 
 -- ---------------------------------------------------------------------------
 -- profiles: espelho de auth.users. O Supabase Auth é o dono da credencial.
@@ -227,9 +227,13 @@ create index tx_user_pendente_idx on transactions (user_id, competencia)
   where pago = false and deleted_at is null;
 
 -- FK adiada: invoices.pagamento_tx_id -> transactions.id
+-- Criada depois de transactions E verificada só no commit (deferrable). A
+-- fatura paga aponta para o pagamento, e o pagamento aponta para a fatura:
+-- no mesmo lote do sync, qualquer ordem de inserção violaria uma das duas.
 alter table invoices
   add constraint invoices_pagamento_fk
-  foreign key (pagamento_tx_id) references transactions(id) on delete set null;
+  foreign key (pagamento_tx_id) references transactions(id) on delete set null
+  deferrable initially deferred;
 
 -- ---------------------------------------------------------------------------
 -- budgets: limite de gasto por categoria por mês (S16).
@@ -341,7 +345,9 @@ create trigger tx_valida_categoria_trg
   before insert or update of category_id, kind on transactions
   for each row execute function tx_valida_categoria();
 
--- updated_at automático em todas as tabelas sincronizadas.
+-- updated_at automático em todas as tabelas sincronizadas, NO INSERT TAMBÉM.
+-- Só no update, a linha nova chegaria com o updated_at do celular, e o cursor
+-- do pull (que é o relógio do servidor) poderia pulá-la. Ver [S].
 create or replace function toca_updated_at() returns trigger
 language plpgsql as $$
 begin
@@ -357,7 +363,7 @@ begin
                            'import_batches','alerts','push_tokens']
   loop
     execute format(
-      'create trigger %I_touch before update on %I
+      'create trigger %I_touch before insert or update on %I
        for each row execute function toca_updated_at()', t, t);
   end loop;
 end $$;
@@ -394,6 +400,119 @@ begin
        using (user_id = auth.uid()) with check (user_id = auth.uid())', t, t);
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- [Y] Sincronização. Duas funções, chamadas pelo app via /rest/v1/rpc.
+--
+-- O SQLite do aparelho é a fonte da verdade e cada conjunto de dados tem um
+-- escritor só, então não há resolução de conflito: o push é upsert por id e o
+-- pull devolve o que mudou desde o cursor.
+--
+-- As duas são SECURITY INVOKER (o padrão): rodam como o usuário logado, e a
+-- RLS acima vale dentro delas. Não há caminho por aqui que leia ou grave a
+-- linha de outra pessoa.
+-- ---------------------------------------------------------------------------
+
+-- Ordem de dependência: quem é referenciado vem antes de quem referencia. O
+-- push grava nesta ordem; o app aplica o pull nesta ordem. O único ciclo
+-- (fatura paga <-> pagamento) é resolvido pela FK adiada.
+create or replace function sync_tabelas() returns text[]
+language sql immutable as $$
+  select array['profiles','accounts','credit_cards','invoices','categories',
+               'import_batches','transactions','budgets','alerts','push_tokens']
+$$;
+
+-- Recebe [{"tabela": "...", "linha": {...}}, ...] e grava tudo numa transação
+-- só (a da chamada): ou o lote inteiro entra, ou nada entra, e o app reenvia.
+-- Reenviar é seguro, porque é upsert sobre o id gerado no aparelho.
+create or replace function push_changes(mudancas jsonb) returns jsonb
+language plpgsql set search_path = public as $$
+declare
+  uid   uuid := auth.uid();
+  m     jsonb;
+  t     text;
+  linha jsonb;
+  cols  text;
+  upd   text;
+  n     integer := 0;
+begin
+  if uid is null then
+    raise exception 'push_changes exige usuário autenticado' using errcode = '28000';
+  end if;
+
+  for m in select value from jsonb_array_elements(mudancas) loop
+    t := m ->> 'tabela';
+    if t is null or not (t = any (sync_tabelas())) then
+      raise exception 'tabela % não sincroniza', t using errcode = '22023';
+    end if;
+
+    -- De quem é a linha quem diz é o token, não o aparelho. O app grava um
+    -- user_id local fixo; aqui ele vira o auth.uid() de quem está logado.
+    linha := m -> 'linha'
+          || case when t = 'profiles' then jsonb_build_object('id', uid)
+                  else jsonb_build_object('user_id', uid) end;
+
+    -- Colunas que existem no servidor. Chave a mais no json (colunas só do
+    -- SQLite) é ignorada pelo jsonb_populate_record.
+    select string_agg(format('%I', column_name), ', ' order by ordinal_position),
+           string_agg(format('%I = excluded.%I', column_name, column_name), ', '
+                      order by ordinal_position)
+             filter (where column_name not in ('id', 'user_id', 'created_at'))
+      into cols, upd
+      from information_schema.columns
+     where table_schema = 'public' and table_name = t;
+
+    -- Se o id existir e for de outra pessoa, o DO UPDATE esbarra na RLS e a
+    -- chamada inteira falha. Não sobrescreve, não revela que a linha existe.
+    execute format(
+      'insert into %I (%s) select %s from jsonb_populate_record(null::%I, $1)
+       on conflict (id) do update set %s',
+      t, cols, cols, t, upd)
+    using linha;
+    n := n + 1;
+  end loop;
+
+  return jsonb_build_object('aplicadas', n, 'server_time', now());
+end $$;
+
+-- Devolve, por tabela, as linhas do usuário com updated_at depois do cursor,
+-- e o próximo cursor. Cursor nulo = tudo (primeira sincronização do aparelho).
+--
+-- O cursor devolvido é o now() do servidor, e a próxima chamada relê um
+-- minuto antes dele. Motivo: now() é o início da transação, não o commit. Um
+-- push que começou antes deste pull e terminou depois grava updated_at menor
+-- que o cursor e ficaria invisível para sempre. Reler um minuto custa
+-- algumas linhas repetidas, e aplicar de novo é idempotente.
+create or replace function pull_changes(desde timestamptz default null)
+returns jsonb
+language plpgsql stable set search_path = public as $$
+declare
+  t       text;
+  linhas  jsonb;
+  tabelas jsonb := '{}';
+begin
+  if auth.uid() is null then
+    raise exception 'pull_changes exige usuário autenticado' using errcode = '28000';
+  end if;
+
+  foreach t in array sync_tabelas() loop
+    execute format(
+      'select coalesce(jsonb_agg(to_jsonb(x)), ''[]'') from %I x
+        where $1 is null or x.updated_at > $1 - interval ''1 minute''', t)
+      into linhas
+      using desde;
+    tabelas := tabelas || jsonb_build_object(t, linhas);
+  end loop;
+
+  return jsonb_build_object('tabelas', tabelas, 'cursor', now());
+end $$;
+
+-- Só quem está logado. O anon recebe EXECUTE por padrão no Supabase; as
+-- funções já recusam sem uid, isto fecha a porta antes.
+revoke execute on function push_changes(jsonb) from public, anon;
+revoke execute on function pull_changes(timestamptz) from public, anon;
+grant execute on function push_changes(jsonb) to authenticated;
+grant execute on function pull_changes(timestamptz) to authenticated;
 
 -- ===========================================================================
 -- NOTAS DE DECISÃO
@@ -454,6 +573,13 @@ end $$;
 -- [M] instituicao é texto livre. Nome de banco em texto é descritivo e
 --     aceitável; empacotar o logotipo do banco no app, não — é marca de
 --     terceiro. O conjunto de ícones é próprio (replica-design).
+--
+-- [Y] O aparelho grava um user_id fixo; o servidor carimba auth.uid().
+--     O banco local tem os dados de UMA pessoa, por construção, então o
+--     user_id local é só um marcador. Quem decide de quem é a linha é o token
+--     da sessão, no push_changes. Efeitos: os repositórios do app não
+--     dependem de quem está logado, os dados de antes do login sobem sem
+--     reescrita, e um app adulterado não consegue gravar em nome de outro.
 --
 -- ===========================================================================
 -- DIFERENÇAS NO SQLITE DO DISPOSITIVO (fonte da verdade local)

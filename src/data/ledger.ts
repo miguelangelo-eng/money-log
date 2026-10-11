@@ -18,13 +18,14 @@ import { today } from '@/lib/civil-date';
  *  reenviar o mesmo lote é upsert na mesma chave, não duplicata. */
 export const newId = () => Crypto.randomUUID();
 
-const nowIso = () => new Date().toISOString();
+export const nowIso = () => new Date().toISOString();
 
-/** Usuário local, enquanto não há autenticação.
+/** O user_id gravado no aparelho. Fixo, mesmo com login.
  *
- *  TODO(auth): quando o Supabase Auth entrar, este id passa a ser o
- *  `auth.uid()`. O schema já está escopado por user_id, então a troca é de
- *  valor, não de estrutura — nenhuma query muda.
+ *  O banco local tem os dados de uma pessoa só, por construção; quem diz de
+ *  quem é cada linha é o token da sessão, no servidor (`push_changes` carimba
+ *  o `auth.uid()`). Ver nota [Y] em replica/schema.sql. Por isso os
+ *  repositórios não dependem de quem está logado.
  */
 export const LOCAL_USER_ID = '00000000-0000-4000-8000-000000000001';
 

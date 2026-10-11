@@ -12,66 +12,118 @@
  *  sempre foi.
  */
 
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 
 import migrations from '../../drizzle/migrations';
 import { db } from '@/db/client';
 import { ensureSeed } from '@/data/ledger';
-import { Txt } from '@/components/ui/primitives';
+import { Entrar } from '@/components/entrar';
+import { Button, Txt } from '@/components/ui/primitives';
 import { space, useTheme } from '@/design/theme';
+import { sync, useAutoSync } from '@/sync';
+import { ErroDeSync } from '@/sync/engine';
+import { useSessao } from '@/sync/sessao';
+import { mensagemDeAuth, supabase } from '@/sync/supabase';
+
+type Fase =
+  | { tipo: 'carregando'; texto?: string }
+  | { tipo: 'entrar' }
+  | { tipo: 'pronto' }
+  | { tipo: 'erro'; erro: unknown };
+
+/** Decide o que mostrar depois que o banco migrou.
+ *
+ *  Local-first: se o aparelho já tem dono, o app abre na hora, com ou sem
+ *  sessão e com ou sem rede. A sessão só é exigida no PRIMEIRO uso, para
+ *  saber de quem são os dados. Se o portão dependesse da sessão, abrir o app
+ *  offline com o token vencido cairia no login — e o app pararia de
+ *  funcionar sem internet, que é o que local-first promete evitar.
+ */
+function usePortao(migrado: boolean): [Fase, () => void] {
+  const { carregando, sessao } = useSessao();
+  const [fase, setFase] = useState<Fase>({ tipo: 'carregando' });
+  const [tentativa, setTentativa] = useState(0);
+  const uid = sessao?.user.id ?? null;
+
+  useEffect(() => {
+    if (!migrado) return;
+    let vivo = true;
+    const ir = (f: Fase) => vivo && setFase(f);
+
+    (async (): Promise<Fase> => {
+      // Sem Supabase configurado: só local, como antes do M1.
+      if (!sync || sync.estado().dono !== null) {
+        await ensureSeed();
+        return { tipo: 'pronto' };
+      }
+      if (carregando) return { tipo: 'carregando' };
+      if (!uid) return { tipo: 'entrar' };
+
+      ir({ tipo: 'carregando', texto: 'Preparando seus dados…' });
+      await sync.prepararAparelho(uid);
+      // Conta nova: semeia aqui, DEPOIS de saber que a nuvem está vazia. Antes
+      // do preparo, semear criaria categorias que colidem com as da nuvem.
+      await ensureSeed();
+      return { tipo: 'pronto' };
+    })()
+      .then(ir)
+      .catch((erro) => ir({ tipo: 'erro', erro }));
+
+    return () => {
+      vivo = false;
+    };
+  }, [migrado, carregando, uid, tentativa]);
+
+  return [fase, () => setTentativa((n) => n + 1)];
+}
 
 export default function RootLayout() {
   const t = useTheme();
   const { success, error } = useMigrations(db, migrations);
-  const [semeado, setSemeado] = useState(false);
-  const [erroSeed, setErroSeed] = useState<Error | null>(null);
+  const [fase, tentarDeNovo] = usePortao(success);
+  useAutoSync(fase.tipo === 'pronto');
 
-  useEffect(() => {
-    if (!success) return;
-    ensureSeed()
-      .then(() => setSemeado(true))
-      .catch((e) => setErroSeed(e instanceof Error ? e : new Error(String(e))));
-  }, [success]);
+  const centro = (filhos: ReactNode) => (
+    <View style={{ flex: 1, backgroundColor: t.bg, padding: space[6], justifyContent: 'center' }}>
+      {filhos}
+    </View>
+  );
 
   // Falha de migração é terminal e precisa ser VISÍVEL. Um app de dinheiro que
   // abre com o banco meio migrado é pior que um app que não abre.
-  const falha = error ?? erroSeed;
-  if (falha) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: t.bg,
-          padding: space[6],
-          justifyContent: 'center',
-        }}>
+  if (error) {
+    return centro(
+      <>
         <Txt variant="lg" color="danger">
           Não foi possível preparar o banco de dados
         </Txt>
         <Txt variant="sm" color="textMuted" style={{ marginTop: space[2] }}>
-          {falha.message}
+          {error.message}
         </Txt>
         <Txt variant="xs" color="textMuted" style={{ marginTop: space[4] }}>
           Nenhum dado foi alterado. Limpar os dados do app recria o banco.
         </Txt>
-      </View>
+      </>,
     );
   }
 
-  if (!success || !semeado) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: t.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+  if (fase.tipo === 'erro') return centro(<ErroDoPortao erro={fase.erro} tentarDeNovo={tentarDeNovo} />);
+
+  if (fase.tipo === 'entrar') return <Entrar temDadosLocais={sync?.temDadosLocais() ?? false} />;
+
+  if (!success || fase.tipo === 'carregando') {
+    return centro(
+      <View style={{ alignItems: 'center', gap: space[3] }}>
         <ActivityIndicator color={t.accent} />
-      </View>
+        {fase.tipo === 'carregando' && fase.texto ? (
+          <Txt variant="sm" color="textMuted">
+            {fase.texto}
+          </Txt>
+        ) : null}
+      </View>,
     );
   }
 
@@ -104,6 +156,59 @@ export default function RootLayout() {
         name="categoria-nova"
         options={{ title: 'Nova categoria', presentation: 'modal' }}
       />
+      <Stack.Screen name="backup" options={{ title: 'Backup e conta' }} />
     </Stack>
+  );
+}
+
+/** O primeiro login não deu certo. Três casos, três saídas. */
+function ErroDoPortao({ erro, tentarDeNovo }: { erro: unknown; tentarDeNovo: () => void }) {
+  const sair = () => {
+    void supabase?.auth.signOut();
+  };
+
+  if (erro instanceof ErroDeSync && erro.codigo === 'conflito_primeiro_login') {
+    const usarNuvem = () =>
+      Alert.alert(
+        'Apagar os dados deste aparelho?',
+        'Os lançamentos que estão só neste aparelho serão apagados, e os da sua conta serão baixados. Não dá para desfazer.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Apagar e baixar',
+            style: 'destructive',
+            onPress: () => {
+              sync?.apagarDadosLocais();
+              tentarDeNovo();
+            },
+          },
+        ],
+      );
+    return (
+      <>
+        <Txt variant="lg">Já existem dados nos dois lugares</Txt>
+        <Txt variant="sm" color="textMuted" style={{ marginTop: space[2], marginBottom: space[4] }}>
+          Este aparelho tem lançamentos feitos sem login, e a sua conta também tem dados. Juntar os
+          dois misturaria históricos e duplicaria categorias, então o app não faz isso sozinho.
+        </Txt>
+        <Button label="Ficar com os dados da conta" onPress={usarNuvem} />
+        <View style={{ height: space[3] }} />
+        <Button label="Sair e entrar com outra conta" variant="secondary" onPress={sair} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Txt variant="lg" color="danger">
+        Não foi possível preparar seus dados
+      </Txt>
+      <Txt variant="sm" color="textMuted" style={{ marginTop: space[2], marginBottom: space[4] }}>
+        {mensagemDeAuth(erro)}
+      </Txt>
+      <Button label="Tentar de novo" onPress={tentarDeNovo} />
+      <View style={{ height: space[3] }} />
+      <Button label="Sair" variant="secondary" onPress={sair} />
+    </>
   );
 }

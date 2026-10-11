@@ -30,10 +30,12 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-url-polyfill": "^4.0.0",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
     "babel-plugin-inline-import": "^3.0.0",
@@ -50,7 +52,7 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "db:generate": "drizzle-kit generate --dialect sqlite --schema ./src/db/schema.ts --out ./drizzle",
+    "db:generate": "drizzle-kit generate",
     "db:check": "node scripts/check-migration.mjs",
     "verify": "npm run typecheck && npm test && npm run db:check"
   },
