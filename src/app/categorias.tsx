@@ -3,10 +3,11 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import { IconeCategoria } from '@/components/ui/icone-categoria';
 import { Button, Row, SectionHeader, Txt } from '@/components/ui/primitives';
 import { listCategories } from '@/data/ledger';
 import { useAsync } from '@/data/use-async';
-import { radius, space, useTheme } from '@/design/theme';
+import { space, useTheme } from '@/design/theme';
 
 export default function Categorias() {
   const t = useTheme();
@@ -35,9 +36,7 @@ export default function Categorias() {
             .filter((c) => c.tipo === tipo)
             .map((c) => (
               <Row key={c.id} accessibilityLabel={`${c.nome}, categoria de ${tipo}`}>
-                <View
-                  style={[styles.ponto, { backgroundColor: c.cor, borderColor: t.surface }]}
-                />
+                <IconeCategoria icone={c.icone} cor={c.cor} />
                 <Txt variant="base" style={{ flex: 1 }} numberOfLines={1}>
                   {c.nome}
                 </Txt>
@@ -57,5 +56,4 @@ export default function Categorias() {
 
 const styles = StyleSheet.create({
   tela: { padding: space[4], paddingBottom: space[8] },
-  ponto: { width: 12, height: 12, borderRadius: radius.pill, borderWidth: 2 },
 });

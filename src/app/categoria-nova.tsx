@@ -2,23 +2,32 @@
  *
  *  A cor vem dos 8 slots categóricos validados (ordem fixa, separação para
  *  daltonismo medida), não de um seletor livre: cor escolhida à mão quase
- *  sempre cai perto de outra e some no relatório. Ícone por categoria fica
- *  para quando o app tiver um conjunto de ícones — hoje a categoria é
- *  identificada por cor e nome.
+ *  sempre cai perto de outra e some no relatório.
+ *
+ *  Ícone de um catálogo fechado (src/lib/categoria-icones.ts), mostrado já na
+ *  cor escolhida: é assim que ele vai aparecer na lista de lançamentos.
  */
 
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import Ionicons from '@expo/vector-icons/Ionicons';
+import type { ComponentProps } from 'react';
+
+import { corNoModo, IconeCategoria } from '@/components/ui/icone-categoria';
 import { Button, Field, SectionHeader, Txt } from '@/components/ui/primitives';
 import { addCategory } from '@/data/ledger';
-import { categorical, radius, space, TARGET_MIN, useTheme } from '@/design/theme';
+import { categorical, radius, space, TARGET_MIN, useMode, useTheme } from '@/design/theme';
+import { ICONE_PADRAO, ICONES_CATEGORIA } from '@/lib/categoria-icones';
+
+type Glifo = ComponentProps<typeof Ionicons>['name'];
 
 const NOMES_COR = ['azul', 'laranja', 'verde-água', 'amarelo', 'rosa', 'verde', 'roxo', 'vermelho'];
 
 export default function NovaCategoria() {
   const t = useTheme();
+  const modo = useMode();
   const router = useRouter();
   const params = useLocalSearchParams<{ tipo?: string }>();
 
@@ -29,6 +38,7 @@ export default function NovaCategoria() {
   // Guarda o hex do modo claro, como a semente: é o valor de referência dos
   // slots; o escuro é o mesmo slot com outro passo.
   const [cor, setCor] = useState<string>(categorical.light[0]);
+  const [icone, setIcone] = useState<string>(ICONE_PADRAO);
   const [tentou, setTentou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -44,7 +54,7 @@ export default function NovaCategoria() {
     setSalvando(true);
     setErro(null);
     try {
-      await addCategory({ nome, tipo, cor });
+      await addCategory({ nome, tipo, cor, icone });
       sair();
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
@@ -118,6 +128,37 @@ export default function NovaCategoria() {
         })}
       </View>
 
+      <SectionHeader>Ícone</SectionHeader>
+      <View style={styles.cores}>
+        {ICONES_CATEGORIA.map((i) => {
+          const ativo = i.chave === icone;
+          return (
+            <Pressable
+              key={i.chave}
+              onPress={() => setIcone(i.chave)}
+              accessibilityRole="radio"
+              accessibilityLabel={i.rotulo}
+              accessibilityState={{ selected: ativo }}
+              style={[
+                styles.cor,
+                {
+                  backgroundColor: ativo ? t.surfaceSunken : 'transparent',
+                  borderColor: ativo ? t.accent : t.border,
+                  borderWidth: ativo ? 2 : StyleSheet.hairlineWidth,
+                },
+              ]}>
+              <Ionicons name={i.glifo as Glifo} size={22} color={corNoModo(cor, modo)} />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Prévia: como a categoria vai aparecer nas listas. */}
+      <View style={styles.previa}>
+        <IconeCategoria icone={icone} cor={cor} />
+        <Txt variant="base">{nome.trim() || 'Nova categoria'}</Txt>
+      </View>
+
       {erro ? (
         <Txt variant="sm" color="danger" style={{ marginTop: space[2] }}>
           {erro}
@@ -142,6 +183,7 @@ const styles = StyleSheet.create({
   linha: { flexDirection: 'row', gap: space[2] },
   flex: { flex: 1 },
   cores: { flexDirection: 'row', flexWrap: 'wrap', gap: space[3], marginTop: space[2] },
+  previa: { flexDirection: 'row', alignItems: 'center', gap: space[3], marginTop: space[4] },
   marca: {
     width: 24,
     height: 24,

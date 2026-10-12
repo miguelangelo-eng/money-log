@@ -66,8 +66,8 @@ export default function Fatura() {
   );
 
   const porCategoria = useMemo(() => {
-    const m = new Map<string, { nome: string; cor: string }>();
-    for (const c of cats.data ?? []) m.set(c.id, { nome: c.nome, cor: c.cor });
+    const m = new Map<string, { nome: string; cor: string; icone: string }>();
+    for (const c of cats.data ?? []) m.set(c.id, { nome: c.nome, cor: c.cor, icone: c.icone });
     return m;
   }, [cats.data]);
 

@@ -10,6 +10,7 @@ import { formatCents, formatSigned } from '@/lib/money';
 import type { Transaction } from '@/db/schema';
 import type { StatusFatura } from '@/lib/card';
 
+import { IconeCategoria } from './icone-categoria';
 import { Button, Card, Row, Txt } from './primitives';
 
 const MESES = [
@@ -48,7 +49,7 @@ export function TransactionRow({
   onPress,
 }: {
   tx: Transaction;
-  categoria?: { nome: string; cor: string };
+  categoria?: { nome: string; cor: string; icone?: string };
   onPress?: () => void;
 }) {
   const t = useTheme();
@@ -103,12 +104,13 @@ export function TransactionRow({
 
   return (
     <Row onPress={onPress} accessibilityLabel={leitura}>
-      <View
-        style={[
-          styles.pontoCategoria,
-          { backgroundColor: categoria?.cor ?? t.textMuted, borderColor: t.surface },
-        ]}
-      />
+      {categoria ? (
+        <IconeCategoria icone={categoria.icone} cor={categoria.cor} />
+      ) : (
+        <View
+          style={[styles.pontoCategoria, { backgroundColor: t.textMuted, borderColor: t.surface }]}
+        />
+      )}
       <View style={styles.meio}>
         <Txt variant="base" numberOfLines={1}>
           {tx.descricao || categoria?.nome || 'Sem descrição'}
@@ -206,12 +208,15 @@ export function OptionList<T extends { id: string }>({
   selecionadoId,
   rotulo,
   cor,
+  icone,
   onSelect,
 }: {
   itens: T[];
   selecionadoId?: string | null;
   rotulo: (item: T) => string;
   cor?: (item: T) => string;
+  /** Com `icone`, a categoria aparece com o ícone na cor dela, não com o ponto. */
+  icone?: (item: T) => string;
   onSelect: (item: T) => void;
 }) {
   const t = useTheme();
@@ -232,7 +237,9 @@ export function OptionList<T extends { id: string }>({
                 backgroundColor: ativo ? t.surfaceSunken : 'transparent',
               },
             ]}>
-            {cor ? (
+            {cor && icone ? (
+              <IconeCategoria icone={icone(item)} cor={cor(item)} />
+            ) : cor ? (
               <View
                 style={[styles.pontoCategoria, { backgroundColor: cor(item), borderColor: t.surface }]}
               />

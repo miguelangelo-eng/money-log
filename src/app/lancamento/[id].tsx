@@ -321,6 +321,7 @@ export default function Lancamento() {
             selecionadoId={categoriaId}
             rotulo={(c) => c.nome}
             cor={(c) => c.cor}
+              icone={(c) => c.icone}
             onSelect={(c) => setCategoriaId(c.id === categoriaId ? null : c.id)}
           />
           {!noCartao && listaContas.length > 1 ? (

@@ -13,7 +13,7 @@ Despesa fixa recorrente,lançamentos,must,yes,yes,"todo mês sem fim, materializ
 Editar ou excluir uma ocorrência versus a série inteira,lançamentos,must,yes,yes,"folha inferior: só esta, esta e as próximas, todas, com a contagem; data muda uma por vez, no mesmo mês"
 Lista do mês com seletor de mês,lançamentos,must,yes,yes,"S04 em src/app/lancamentos.tsx, agrupada por dia"
 Categorias padrão de despesa e receita,categorias,must,yes,yes,"10 categorias semeadas no primeiro boot, nomes proprios"
-Criar categoria própria com ícone e cor,categorias,must,yes,partial,cor dos 8 slots validados; icone fica para quando houver conjunto de icones
+Criar categoria própria com ícone e cor,categorias,must,yes,yes,36 ícones (Ionicons) num catálogo fechado + 8 cores validadas; ícone na cor da categoria em listas e seletores
 Cadastrar cartão com limite fechamento e vencimento,cartões,must,yes,yes,S11; previa ao vivo de em que fatura cai uma compra de hoje
 Lançar compra no cartão,cartões,must,yes,yes,S06 com Pagar com: Conta | Cartao; invoice_id gravado na escrita
 Fatura do cartão com total e navegação entre faturas,cartões,must,yes,yes,"S12; status derivado de datas, so paga e persistido"

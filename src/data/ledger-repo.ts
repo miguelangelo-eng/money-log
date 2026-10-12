@@ -28,6 +28,7 @@ import {
 } from '@/db/schema';
 import { saldoDaConta, type LinhaAgregada } from '@/lib/balance';
 import { PARCELAS_MAX } from '@/lib/card';
+import { ICONE_PADRAO, iconeValido } from '@/lib/categoria-icones';
 import { clampDay, daysInMonth, monthStart, parse, type CivilDate } from '@/lib/civil-date';
 import { splitInstallments, type Cents } from '@/lib/money';
 import {
@@ -609,7 +610,7 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
     },
 
     async addCategory(
-      input: { nome: string; tipo: 'despesa' | 'receita'; cor: string },
+      input: { nome: string; tipo: 'despesa' | 'receita'; cor: string; icone?: string },
       userId = padrao,
     ): Promise<string> {
       const nome = input.nome.trim();
@@ -618,6 +619,8 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
         throw new Error('Tipo de categoria inválido.');
       }
       if (!/^#[0-9a-fA-F]{6}$/.test(input.cor)) throw new Error('Cor inválida.');
+      const icone = input.icone ?? ICONE_PADRAO;
+      if (!iconeValido(icone)) throw new Error('Ícone inválido.');
 
       const repetida = db
         .select({ id: categories.id })
@@ -641,7 +644,7 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
           userId,
           nome,
           tipo: input.tipo,
-          icone: 'tag',
+          icone,
           cor: input.cor,
           createdAt: ts,
           updatedAt: ts,

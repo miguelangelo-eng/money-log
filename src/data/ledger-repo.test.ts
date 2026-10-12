@@ -532,3 +532,15 @@ test('conta futura paga antes da data: o pago vale para a primeira ocorrência',
   assert.deepEqual(l.slice(0, 3).map((x) => x.pago), [1, 0, 0]);
   assert.equal((await amb.repo.getTransaction(id))?.pagoEm, HOJE, 'pago hoje, não na data futura');
 });
+
+test('categoria nova guarda o ícone escolhido; fora do catálogo é recusado', async () => {
+  const { repo } = ambiente();
+  const id = await repo.addCategory({ nome: 'Pet', tipo: 'despesa', cor: '#1baf7a', icone: 'paw' });
+  assert.equal((await repo.listCategories('despesa')).find((c) => c.id === id)?.icone, 'paw');
+  await assert.rejects(
+    repo.addCategory({ nome: 'X', tipo: 'despesa', cor: '#1baf7a', icone: 'nao-existe' }),
+    /Ícone inválido/,
+  );
+  const semIcone = await repo.addCategory({ nome: 'Y', tipo: 'despesa', cor: '#1baf7a' });
+  assert.equal((await repo.listCategories('despesa')).find((c) => c.id === semIcone)?.icone, 'tag');
+});
