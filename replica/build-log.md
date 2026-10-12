@@ -565,3 +565,36 @@ mês por número desde 01/10/2026.
 - Nada rodou na Meta nem no Supabase de verdade: a função não foi publicada,
   e o formato do webhook foi escrito pela documentação, não visto.
 - A tela "Lançar pelo WhatsApp" não foi vista no aparelho.
+
+## 2026-10-12 — WhatsApp: tentado, pausado (backlog)
+
+**Atualização pelo ar validada no aparelho:** publicar com `npm run
+publicar` e receber por "Verificar atualização", sem APK.
+
+**WhatsApp — o que foi feito com a Meta e o Supabase:** SQL aplicado, Edge
+Function publicada e verificada de fora (token errado: 403; sem assinatura ou
+assinatura falsa: 401), segredos conferidos sem expor valores (o Phone
+number ID bate pelo resumo SHA-256), webhook configurado. Default da Graph API
+foi para v25.0, a versão que o painel da Meta mostra.
+
+**Por que parou:** a conta do WhatsApp Business recém-criada responde
+**131031 "Business Account locked"** ao enviar (o painel diz "Aprovada"; o
+retorno vem com `account_context_type: paid_messaging`, o que sugere a
+exigência de forma de pagamento — não confirmado). E app da Meta não
+publicado só recebe webhooks de teste: mensagens reais exigiriam publicar
+(política de privacidade, ícone, categoria). Burocracia de produto
+comercial para um bot de duas pessoas; o usuário preferiu pausar.
+
+**Lições:**
+
+- O retorno da Meta veio com o número brasileiro **sem o nono dígito**
+  (`wa_id` de 12 dígitos) — o bot responde para o `from` como chega, então
+  não depende disso, mas a lista de destinatários do número de teste sim.
+- Exemplo de comando com `<placeholder>` no PowerShell virou redirecionamento
+  e criou arquivos vazios na raiz. Instrução para terminal: valor de exemplo
+  sem `<` `>`.
+- **Um token da Meta foi colado no chat.** Não foi usado nem gravado; a
+  recomendação foi revogar.
+
+O botão "Lançar pelo WhatsApp" ficou atrás de `EXPO_PUBLIC_WHATSAPP_NUMERO`;
+como não está configurado, some do app. Retomar: ver o SETUP.md.

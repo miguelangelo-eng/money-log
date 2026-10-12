@@ -245,7 +245,35 @@ subir `version` no `app.json` (ex.: 1.0.0 → 1.1.0) e gerar o APK. A
 atualização nunca chega a um APK de versão diferente — que é o que impede
 JavaScript novo de rodar sobre código nativo velho.
 
-## Lançar pelo WhatsApp — passo a passo
+## Lançar pelo WhatsApp — EM BACKLOG
+
+**Pausado em 2026-10-12, por decisão do usuário.** O código está pronto e
+testado; o que travou foi a Meta. Onde parou:
+
+- Já feito no projeto do Supabase: `supabase/whatsapp.sql` aplicado; a Edge
+  Function `whatsapp` publicada (recusa chamada sem assinatura: 401) com os 4
+  segredos gravados.
+- Já feito na Meta: app "Money Log Bot", número de teste, webhook apontando
+  para a função.
+- **Bloqueios:** (1) a conta do WhatsApp Business recém-criada devolve
+  **erro 131031 "Business Account locked"** ao enviar, mesmo aparecendo como
+  "Aprovada" no painel (hipótese não confirmada: falta forma de pagamento,
+  exigida desde 30/09/2026 para mensagens pagas); (2) com o app **não
+  publicado**, a Meta só entrega webhooks de teste do painel, não mensagens
+  reais. Publicar exige URL de política de privacidade, ícone e categoria.
+- No app, o botão "Lançar pelo WhatsApp" só aparece com
+  `EXPO_PUBLIC_WHATSAPP_NUMERO` configurado — hoje fica escondido.
+
+**Para retomar:** resolver o 131031 (Qualidade da conta / suporte da Meta, ou
+cadastrar forma de pagamento), publicar o app na Meta (política de
+privacidade numa página pública), gerar um token novo e regravar
+`WHATSAPP_TOKEN`, assinar o campo `messages` do webhook, e seguir do passo 7
+abaixo. **Alternativa avaliada:** Telegram (bot oficial, gratuito, sem
+empresa nem publicação) — reaproveita o SQL, o leitor e a tela; só troca a
+Edge Function.
+
+Passo a passo original:
+
 
 Mandar "mercado 42,90" para um número e o lançamento aparecer no app. Peças:
 `supabase/whatsapp.sql` (vínculo, lançar, desfazer — testado no PGlite),

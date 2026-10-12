@@ -31,7 +31,7 @@ const env = (k: string) => {
   return v;
 };
 
-const GRAPH = Deno.env.get('GRAPH_API_VERSION') ?? 'v23.0';
+const GRAPH = Deno.env.get('GRAPH_API_VERSION') ?? 'v25.0';
 
 /** "Hoje" no fuso de quem usa o app, não no do servidor (UTC). */
 function hojeSaoPaulo(): string {

@@ -51,4 +51,4 @@ Agente MCP sobre os dados financeiros,ia,skip,yes,skip,depois do MVP — não é
 Integrações de parceiros como Wellhub,integrações,skip,yes,skip,é contrato comercial deles e não feature de software
 Conteúdo de educação financeira e blog,conteúdo,skip,yes,skip,é o ativo editorial deles
 Logotipos das instituições bancárias,design,skip,yes,skip,marca registrada de terceiro — usar nome em texto sim logotipo empacotado não
-Lançar pelo WhatsApp,integrações,could,no,yes,"bot por comandos (sem IA): ""mercado 42,90""; vínculo por código, Cloud API oficial da Meta, Edge Function; o original só tem o assessor por IA (pago)"
+Lançar pelo WhatsApp,integrações,could,no,partial,código pronto e testado; em backlog — conta da Meta bloqueada (131031) e app não publicado

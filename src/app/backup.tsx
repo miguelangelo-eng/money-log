@@ -17,6 +17,8 @@ import { sincronizarAgora, sync, useStatusSync } from '@/sync';
 import { useSessao } from '@/sync/sessao';
 import { supabase } from '@/sync/supabase';
 
+const WHATSAPP_CONFIGURADO = Boolean(process.env.EXPO_PUBLIC_WHATSAPP_NUMERO);
+
 function quando(iso: string | null): string {
   if (!iso) return 'nunca';
   const d = new Date(iso);
@@ -121,11 +123,15 @@ export default function Backup() {
         disabled={status.sincronizando}
       />
 
-      <Button
-        label="Lançar pelo WhatsApp"
-        variant="secondary"
-        onPress={() => router.push('/whatsapp')}
-      />
+      {/* Bot do WhatsApp em backlog: o botão só aparece com o número do bot
+          configurado (EXPO_PUBLIC_WHATSAPP_NUMERO). Ver SETUP.md. */}
+      {WHATSAPP_CONFIGURADO ? (
+        <Button
+          label="Lançar pelo WhatsApp"
+          variant="secondary"
+          onPress={() => router.push('/whatsapp')}
+        />
+      ) : null}
 
       <View style={{ height: space[6] }} />
       <SecaoVersao />
