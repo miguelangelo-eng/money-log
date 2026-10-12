@@ -9,6 +9,11 @@
  *  O que é stub, imitando o Supabase:
  *    - o schema `auth`, com `auth.users` e `auth.uid()` lendo o `sub` do JWT
  *      em `request.jwt.claims`, como o PostgREST faz;
+ *    - o DONO dos objetos é um papel comum (`dono`), não superusuário — como
+ *      o `postgres` do Supabase. Superusuário ignora a RLS até forçada, e
+ *      esconderia função SECURITY DEFINER barrada pela RLS em produção;
+ *    - `service_role` com BYPASSRLS, como no Supabase (é o papel da Edge
+ *      Function do WhatsApp);
  *    - os papéis `anon` e `authenticated`, SEM grants automáticos (o projeto
  *      é criado com "Automatically expose new tables" desmarcado).
  *  O resto — tabelas, constraints, triggers, RLS, funções de sync — é o
@@ -28,6 +33,8 @@ import type { Transporte } from '@/sync/engine';
 const STUB_SUPABASE = `
   create role anon nologin;
   create role authenticated nologin;
+  create role service_role nologin bypassrls;
+  create role dono nologin;
 
   create schema auth;
   create table auth.users (
@@ -40,17 +47,21 @@ const STUB_SUPABASE = `
       ''
     )::uuid
   $$;
-  grant usage on schema auth to anon, authenticated;
-  grant execute on function auth.uid() to anon, authenticated;
+  grant usage on schema auth to anon, authenticated, service_role, dono;
+  grant execute on function auth.uid() to anon, authenticated, service_role, dono;
+  grant references on auth.users to dono;
+  grant usage, create on schema public to dono;
 
   -- O pior caso do Supabase: projeto criado com "Automatically expose new
   -- tables" DESMARCADO. Nenhum grant automático em tabela, e nem o EXECUTE
   -- padrão do Postgres para PUBLIC em função. Tudo que o app precisa tem de
   -- vir de grant explícito no schema.sql — e estes testes provam que vem.
-  grant usage on schema public to anon, authenticated;
-  alter default privileges in schema public
+  grant usage on schema public to anon, authenticated, service_role;
+  alter default privileges for role dono in schema public
     revoke execute on functions from public;
 `;
+
+export const WHATSAPP_SQL = readFileSync('supabase/whatsapp.sql', 'utf8');
 
 export const SCHEMA_SQL = readFileSync('replica/schema.sql', 'utf8');
 
@@ -60,7 +71,8 @@ export type Pg = PGlite;
 export async function servidorDeTeste(): Promise<PGlite> {
   const pg = await PGlite.create();
   await pg.exec(STUB_SUPABASE);
-  await pg.exec(SCHEMA_SQL);
+  // Aplicado COMO o dono comum, como o SQL Editor do Supabase faz.
+  await pg.exec(`set role dono;\n${SCHEMA_SQL}\n${WHATSAPP_SQL}\nreset role;`);
   return pg;
 }
 
@@ -82,6 +94,14 @@ export function transportePg(pg: PGlite, uid: string | null): Transporte {
     push: (mudancas) => rpc('select push_changes($1::jsonb)::text as r', JSON.stringify(mudancas)),
     pull: (desde) => rpc('select pull_changes($1::timestamptz)::text as r', desde),
   };
+}
+
+/** Roda `fn` como a Edge Function: papel service_role, sem usuário logado. */
+export async function comoServico<T>(pg: PGlite, fn: (tx: Transaction) => Promise<T>): Promise<T> {
+  return pg.transaction(async (tx) => {
+    await tx.exec('set local role service_role');
+    return fn(tx);
+  });
 }
 
 /** Roda `fn` como o usuário logado `uid`: papel `authenticated` e o `sub` do

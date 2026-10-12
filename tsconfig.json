@@ -23,6 +23,7 @@
     "ios",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "src/test-support"
+    "src/test-support",
+    "supabase/functions"
   ]
 }

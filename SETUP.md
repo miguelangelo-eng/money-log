@@ -245,6 +245,64 @@ subir `version` no `app.json` (ex.: 1.0.0 → 1.1.0) e gerar o APK. A
 atualização nunca chega a um APK de versão diferente — que é o que impede
 JavaScript novo de rodar sobre código nativo velho.
 
+## Lançar pelo WhatsApp — passo a passo
+
+Mandar "mercado 42,90" para um número e o lançamento aparecer no app. Peças:
+`supabase/whatsapp.sql` (vínculo, lançar, desfazer — testado no PGlite),
+`supabase/functions/whatsapp/` (Edge Function que a Meta chama) e a tela
+"Backup e conta → Lançar pelo WhatsApp". O bot só cria lançamentos (e desfaz
+o último que ele criou); o celular recebe pelo pull.
+
+**Custo (Meta, desde 01/10/2026):** a mensagem que vocês mandam não é
+cobrada; cada resposta do bot é uma "mensagem de serviço", com 1.000 grátis
+por mês por número. Duas pessoas lançando bastante ficam bem abaixo. O número
+de teste da Meta não exige cartão e conversa com até 5 números.
+
+1. **Banco:** SQL Editor do Supabase → colar `supabase/whatsapp.sql` → Run.
+2. **App na Meta:** developers.facebook.com → Meus apps → Criar app → caso de
+   uso de WhatsApp (conectar com clientes) → no produto WhatsApp, em
+   "Configuração da API":
+   - anote o **Phone number ID** do número de teste (não é o número);
+   - em "Para", **adicione os dois celulares** (o seu e o dela); cada um
+     confirma com um código.
+3. **Token permanente** (o da tela de configuração vence em 24 h):
+   Configurações do negócio → Usuários do sistema → criar um (Admin) →
+   atribuir o app → gerar token com `whatsapp_business_messaging` e
+   `whatsapp_business_management`, validade "Nunca".
+4. **Chave secreta do app:** Configurações do app → Básico → Chave secreta.
+   É ela que assina cada chamada do webhook; a função recusa o que não
+   bater.
+5. **Publicar a função** (CLI do Supabase pelo npx, sem Docker):
+
+   ```powershell
+   npx.cmd supabase@2.118.0 login
+   npx.cmd supabase@2.118.0 link --project-ref <id-do-projeto>
+   npx.cmd supabase@2.118.0 secrets set WHATSAPP_TOKEN=<token> WHATSAPP_APP_SECRET=<chave secreta> WHATSAPP_VERIFY_TOKEN=<texto-que-voce-inventar> WHATSAPP_PHONE_NUMBER_ID=<phone number id>
+   npm.cmd run whatsapp:publicar
+   ```
+
+   Esses quatro valores são segredos: ficam no Supabase, nunca no app, no
+   `.env.local` nem no git.
+6. **Webhook na Meta:** WhatsApp → Configuração → Webhook:
+   - URL de callback: `https://<id-do-projeto>.supabase.co/functions/v1/whatsapp`
+   - Token de verificação: o mesmo `WHATSAPP_VERIFY_TOKEN`
+   - depois, em "Campos do webhook", assinar **messages**.
+7. **Número do bot no app** (não é segredo): em `.env.local` e no ambiente
+   `preview` do EAS:
+
+   ```powershell
+   npx.cmd eas-cli@24.8.0 env:create --environment preview --name EXPO_PUBLIC_WHATSAPP_NUMERO --value <numero-com-ddi> --visibility plaintext
+   ```
+
+   e publicar a atualização (`npm.cmd run publicar -- "WhatsApp"`).
+8. **Conectar:** no app, Backup e conta → Lançar pelo WhatsApp → gerar
+   código → "Abrir no WhatsApp" → enviar. O bot responde "✅ Pronto!". Daí,
+   "mercado 42,90".
+
+**Se o bot não responder** a um número brasileiro com o erro "recipient not in
+allowed list" nos logs da função: a Meta às vezes identifica o celular SEM o
+nono dígito. Adicione o número também nesse formato em "Para" (passo 2).
+
 ## Como o sync funciona
 
 O SQLite do aparelho é a fonte da verdade; o Postgres é réplica e backup.

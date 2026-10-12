@@ -7,6 +7,7 @@
  */
 
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { Entrar } from '@/components/entrar';
 import { SecaoVersao } from '@/components/versao';
@@ -25,6 +26,7 @@ function quando(iso: string | null): string {
 
 export default function Backup() {
   const t = useTheme();
+  const router = useRouter();
   const status = useStatusSync();
   const { carregando, sessao } = useSessao();
 
@@ -117,6 +119,12 @@ export default function Backup() {
         onPress={() => void sincronizarAgora()}
         loading={status.sincronizando}
         disabled={status.sincronizando}
+      />
+
+      <Button
+        label="Lançar pelo WhatsApp"
+        variant="secondary"
+        onPress={() => router.push('/whatsapp')}
       />
 
       <View style={{ height: space[6] }} />

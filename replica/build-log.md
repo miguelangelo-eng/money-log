@@ -512,3 +512,56 @@ do primeiro push, o histórico foi reescrito para o e-mail noreply do GitHub
 nos commits; o conteúdo dos arquivos ficou idêntico.
 
 **Ainda não visto no aparelho:** pagar a fatura (a regra está testada).
+
+## 2026-10-11 — Lançar pelo WhatsApp (código pronto, falta a Meta)
+
+Mandar "mercado 42,90" para o número do bot e o lançamento aparecer no app.
+Cloud API oficial da Meta (não bibliotecas que imitam o WhatsApp Web: violam
+os termos e banem o número). Sem IA: gramática simples, sem custo por
+mensagem. Custo da Meta conferido em 2026-10-11: 1.000 respostas grátis por
+mês por número desde 01/10/2026.
+
+### Decisões
+
+- **A lógica mora no SQL** (`supabase/whatsapp.sql`): vincular, lançar,
+  desfazer, deduplicar reenvio. Testável no PGlite; a Edge Function só
+  confere a assinatura, lê o texto e chama o banco.
+- **Vínculo por código do app** (6 dígitos, 10 min, uso único; 5 erros por
+  hora bloqueiam o número). Sem isso, quem descobrisse o número do bot
+  lançaria na conta de qualquer um. Um número por conta e vice-versa.
+- **Funções do bot como `security invoker`, executáveis só pelo
+  `service_role`.** No Supabase o dono das funções (`postgres`) não é
+  superusuário; com a RLS forçada, um `security definer` seria barrado. O
+  stub do PGlite passou a criar tudo com um dono comum e um `service_role`
+  com BYPASSRLS — os testes de sync também rodam nesse cenário agora.
+- **O bot só cria** (e desfaz o último que criou). Com o celular sendo o
+  único que edita, não há conflito: as linhas chegam pelo pull.
+- **Categoria por palavra inteira, sem acento**, do mesmo tipo do
+  lançamento; sem casamento, entra sem categoria (registrado é melhor que
+  perdido). Valor é o último número da mensagem; data hoje, "ontem" ou dd/mm.
+- **"Hoje" no fuso de São Paulo**, no SQL e na função: às 22h o servidor (UTC)
+  já está no dia seguinte.
+
+### O que os testes pegaram
+
+- **"vincular 12345" (código com 5 dígitos) virava despesa de R$ 12.345,00**
+  chamada "Vincular". Agora mensagem que começa com "vincular" nunca lança.
+- Mutação: 4 de 4 mortos (categoria de outro usuário, app chamando o bot,
+  número de outra conta aceito, código reutilizável). O de "app chamando o
+  bot" só morreu depois de o teste exigir "permission denied **for
+  function**": antes ele passava pela barreira seguinte (permissão de
+  tabela), o que provava a segunda defesa, não a primeira.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **163 testes** (17 novos) |
+| typecheck da Edge Function | ok, com declaração mínima de `Deno` |
+| `npx expo export --platform android` | exit 0 |
+
+### O que NÃO foi verificado
+
+- Nada rodou na Meta nem no Supabase de verdade: a função não foi publicada,
+  e o formato do webhook foi escrito pela documentação, não visto.
+- A tela "Lançar pelo WhatsApp" não foi vista no aparelho.
