@@ -58,7 +58,7 @@
     "db:generate": "drizzle-kit generate",
     "db:check": "node scripts/check-migration.mjs",
     "verify": "npm run typecheck && npm test && npm run db:check",
-    "publicar": "npm run verify && npx eas-cli@24.8.0 update --channel preview --environment preview --message",
+    "publicar": "node scripts/publicar.mjs",
     "whatsapp:publicar": "npx supabase@2.118.0 functions deploy whatsapp --no-verify-jwt --use-api"
   },
   "private": true
