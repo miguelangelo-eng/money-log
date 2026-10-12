@@ -498,3 +498,17 @@ por maior resto, para somarem exatamente 100.
   pequenas).
 - A lista do relatório não abre os lançamentos filtrados pela categoria
   (components.md pede); a lista de lançamentos ainda não tem filtro.
+
+## 2026-10-11 — Validado no APK
+
+Novo APK (EAS, perfil `preview`) instalado por cima, sem perder dados.
+**Validado no aparelho:** abas com ícones e a aba Design fora do release,
+campo de valor com foco visível, grupo 2 (recorrente, parcelado em conta,
+"só esta / próximas / todas", pago ou pendente), ícone na categoria,
+orçamento por categoria e rosca de gastos com destaque.
+
+Código publicado em github.com/miguelangelo-eng/money-log (público). Antes
+do primeiro push, o histórico foi reescrito para o e-mail noreply do GitHub
+nos commits; o conteúdo dos arquivos ficou idêntico.
+
+**Ainda não visto no aparelho:** pagar a fatura (a regra está testada).

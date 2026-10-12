@@ -60,19 +60,19 @@ mesmo motor do aparelho — com a migração real.
 
 ## Estado (2026-10-11)
 
-**Validado no Android:** M0, M2 (cartão), grupo 1 e M1 (login, backup e
-sincronização com o Supabase, com as duas contas reais). O app roda como
-**APK** nos dois celulares (seção "App instalável").
+**Validado no Android:** M0, M2 (cartão), grupo 1, M1 (login, backup e
+sincronização com o Supabase, com as duas contas reais), grupo 2, ícone na
+categoria, orçamento e rosca de gastos. O app roda como **APK** nos dois
+celulares (seção "App instalável"). **Todos os 23 obrigatórios feitos**;
+paridade **72,9/100**. `npm run verify`: **146 testes**.
 
-**Pronto, não visto no aparelho:** grupo 2 (recorrente, parcelado em conta,
-"só esta / próximas / todas", pago ou pendente), ícone na categoria,
-orçamento por categoria (aba nova) e rosca de gastos. **Todos os 23
-obrigatórios feitos**; paridade **72,9/100**. `npm run verify`: **146 testes**.
+Código em [github.com/miguelangelo-eng/money-log](https://github.com/miguelangelo-eng/money-log)
+(público). Os commits usam o e-mail noreply do GitHub, configurado só neste
+repositório; o GitHub recusa push que exponha o e-mail pessoal.
 
-**Não visto no aparelho:** tudo da linha acima e pagar a fatura (as regras
-estão testadas).
+**Não visto no aparelho:** pagar a fatura (a regra está testada).
 
-**Próximo:** validar no aparelho e gerar um APK novo. Depois, os desejáveis
+**Próximo:** os desejáveis
 (`should` em [`replica/features.csv`](replica/features.csv)): busca e filtro,
 alertas, exportar CSV, importar OFX/CSV, login com Google. `python
 ~/.claude/skills/replica-diff/parity.py replica/features.csv` recalcula a
