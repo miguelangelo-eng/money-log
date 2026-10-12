@@ -20,7 +20,7 @@ Fatura do cartão com total e navegação entre faturas,cartões,must,yes,yes,"S
 Pagar fatura debitando uma conta,cartões,must,yes,yes,"tipo proprio pagamento_fatura; so fatura fechada, pagamento integral (parcial fica para depois)"
 Relatório de gastos por categoria,relatórios,must,yes,partial,"lista ranqueada pronta; a rosca exige Skia, ainda nao instalado"
 Relatório de receita versus despesa do mês,relatórios,must,yes,yes,"S15, barras com par polar azul-vermelho"
-Limite de gastos por categoria com barra de progresso,orçamento,must,yes,no,"no original aparece como ""Metas"""
+Limite de gastos por categoria com barra de progresso,orçamento,must,yes,yes,"aba Orçamento (S16): limite de todo mês ou só de um mês, barra ok/atenção/estourado sempre com o valor em texto"
 Backup na nuvem e restauração em outro aparelho,sync,must,yes,yes,M1: entrar num aparelho vazio baixa tudo; validado trocando do Expo Go para o APK
 Login com Google,onboarding,should,yes,no,
 Importar extrato OFX,import,should,yes,no,substitui a conexão bancária no MVP

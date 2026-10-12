@@ -43,6 +43,10 @@ export default function TabsLayout() {
         name="relatorios"
         options={{ title: 'Relatórios', tabBarIcon: icone('pie-chart') }}
       />
+      <Tabs.Screen
+        name="orcamento"
+        options={{ title: 'Orçamento', tabBarIcon: icone('speedometer') }}
+      />
       {/* Vitrine dos componentes, para desenvolvimento. No APK a aba some
           (href: null); no Metro continua acessível. */}
       <Tabs.Screen

@@ -164,6 +164,7 @@ export default function RootLayout() {
         options={{ title: 'Nova categoria', presentation: 'modal' }}
       />
       <Stack.Screen name="backup" options={{ title: 'Backup e conta' }} />
+      <Stack.Screen name="limite" options={{ title: 'Limite', presentation: 'modal' }} />
     </Stack>
   );
 }

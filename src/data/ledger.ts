@@ -10,6 +10,7 @@
 import * as Crypto from 'expo-crypto';
 
 import { db } from '@/db/client';
+import { createBudgetsRepo } from '@/data/budgets';
 import { createCardsRepo } from '@/data/cards';
 import { createLedgerRepo } from '@/data/ledger-repo';
 import { today } from '@/lib/civil-date';
@@ -59,6 +60,9 @@ export const {
 } = ledger;
 
 export const cards = createCardsRepo({ db, newId, nowIso, userId: LOCAL_USER_ID });
+
+export const orcamento = createBudgetsRepo({ db, newId, nowIso, userId: LOCAL_USER_ID });
+export type { LimiteDoMes } from '@/data/budgets';
 
 export {
   monthRange,
