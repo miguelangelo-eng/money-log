@@ -146,6 +146,9 @@ create table transactions (
   parcela_de          smallint,
 
   import_batch_id     uuid,
+  -- Id da linha no extrato do banco. Único por usuário, inclusive em linha
+  -- excluída: o que foi apagado de propósito não volta. Ver [I].
+  id_externo          text,
 
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),
@@ -225,6 +228,9 @@ create index tx_user_updated_idx on transactions (user_id, updated_at);
 -- Alertas de conta a vencer (F10).
 create index tx_user_pendente_idx on transactions (user_id, competencia)
   where pago = false and deleted_at is null;
+-- Importação de extrato: a mesma linha do banco entra uma vez só. Ver [I].
+create unique index tx_id_externo_unico on transactions (user_id, id_externo)
+  where id_externo is not null;
 
 -- FK adiada: invoices.pagamento_tx_id -> transactions.id
 -- Criada depois de transactions E verificada só no commit (deferrable). A
@@ -602,6 +608,9 @@ grant execute on function tx_valida_categoria() to authenticated;
 --
 -- [I] import_batches.sha256 é único por usuário: reimportar o mesmo arquivo é
 --     rejeitado pelo banco. É a defesa contra o erro mais comum do import.
+--     Mas o hash do arquivo não basta: extratos com períodos sobrepostos têm
+--     hashes diferentes e as mesmas transações. A defesa por LINHA é
+--     transactions.id_externo, único por usuário (excluídas incluídas).
 --
 -- [M] instituicao é texto livre. Nome de banco em texto é descritivo e
 --     aceitável; empacotar o logotipo do banco no app, não — é marca de

@@ -26,6 +26,7 @@
     "src/data/cards.ts",
     "src/data/ledger-repo.ts",
     "src/data/budgets.ts",
+    "src/data/importacao.ts",
     "src/data/*.test.ts",
     "src/db/schema.ts",
     "src/sync/**/*.ts",

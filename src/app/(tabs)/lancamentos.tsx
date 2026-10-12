@@ -86,6 +86,12 @@ export default function Lancamentos() {
         onPress={() => router.push('/novo')}
         style={{ marginTop: space[6] }}
       />
+      <Button
+        label="Importar extrato do banco"
+        variant="secondary"
+        onPress={() => router.push('/importar')}
+        style={{ marginTop: space[3] }}
+      />
     </ScrollView>
   );
 }

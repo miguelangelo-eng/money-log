@@ -23,10 +23,10 @@ Relatório de receita versus despesa do mês,relatórios,must,yes,yes,"S15, barr
 Limite de gastos por categoria com barra de progresso,orçamento,must,yes,yes,"aba Orçamento (S16): limite de todo mês ou só de um mês, barra ok/atenção/estourado sempre com o valor em texto"
 Backup na nuvem e restauração em outro aparelho,sync,must,yes,yes,M1: entrar num aparelho vazio baixa tudo; validado trocando do Expo Go para o APK
 Login com Google,onboarding,should,yes,no,
-Importar extrato OFX,import,should,yes,no,substitui a conexão bancária no MVP
-Importar planilha CSV,import,should,yes,no,
-Conciliar o import com o que já foi digitado à mão,import,should,yes,no,é o que define se o import presta
-Barrar import duplicado do mesmo arquivo,import,should,no,no,hash do arquivo em ImportBatch — nosso
+Importar extrato OFX,import,should,yes,yes,conta (OFX/CSV) e fatura do cartão (CSV) do Nubank; OFX de outros bancos; prévia editável e gravação tudo-ou-nada
+Importar planilha CSV,import,should,yes,yes,"CSV do extrato e da fatura do Nubank (formatos fixos, detectados pelo cabeçalho)"
+Conciliar o import com o que já foi digitado à mão,import,should,yes,yes,"mesmo valor e sentido, até 3 dias; o lançamento manual ganha o id do banco"
+Barrar import duplicado do mesmo arquivo,import,should,no,yes,hash do arquivo em ImportBatch + id_externo por linha (extratos sobrepostos não duplicam) — nosso
 Alerta de conta a vencer,alertas,should,yes,no,
 Alerta de limite de categoria estourado,alertas,should,yes,no,
 Anexar comprovante ao lançamento,lançamentos,should,yes,no,

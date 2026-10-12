@@ -49,7 +49,7 @@ export type SyncDb = BaseSQLiteDatabase<'sync', any, typeof schema>;
 
 /** O que um helper precisa para ler e escrever — vale para o `db` e para o
  *  `tx` de dentro de uma transação. */
-type Q = Pick<SyncDb, 'select' | 'insert' | 'update'>;
+export type Q = Pick<SyncDb, 'select' | 'insert' | 'update'>;
 
 export interface CardsDeps {
   db: SyncDb;
@@ -75,6 +75,19 @@ export interface CompraNoCartao {
   parcelas: number;
   categoryId?: string | null;
   descricao?: string;
+  /** Crédito no cartão (estorno): abate da fatura. Só à vista. */
+  estorno?: boolean;
+  /** Importação de extrato. Só à vista: a linha da fatura é uma parcela. */
+  idExterno?: string;
+  importBatchId?: string;
+}
+
+export interface PagamentoDeFatura {
+  invoiceId: string;
+  accountId: string;
+  data: CivilDate;
+  idExterno?: string;
+  importBatchId?: string;
 }
 
 export interface FaturaResumo {
@@ -100,6 +113,13 @@ const dataBr = (d: CivilDate) => {
   const { day, month } = parse(d);
   return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
 };
+
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+/** '2026-08-01' -> 'agosto de 2026'. */
+export const mesPorExtenso = (d: CivilDate) => `${MESES[parse(d).month - 1]} de ${parse(d).year}`;
 
 const ciclo = (c: CreditCard): CardCycle => ({
   diaFechamento: c.diaFechamento,
@@ -219,6 +239,139 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
     return criada;
   }
 
+  function comprar(tx: Q, input: CompraNoCartao, userId: string): string[] {
+    const card = buscarCartao(tx, input.cardId, userId);
+    if (!card) throw new Error('Cartão não encontrado.');
+    if ((input.estorno || input.idExterno) && input.parcelas !== 1) {
+      throw new Error('Estorno e linha importada são à vista.');
+    }
+
+    const plano = planoDeCompra(input.competencia, ciclo(card), input.amountCents, input.parcelas);
+    const parcelado = plano.length > 1;
+    const seriesId = parcelado ? newId() : null;
+    const ts = nowIso();
+    const ids: string[] = [];
+
+    for (const p of plano) {
+      const fatura = garantirFatura(tx, userId, card, p.fatura, ts);
+      if (fatura.status === 'paga') {
+        // Não deveria acontecer com data de hoje (só paga fatura fechada),
+        // mas lançamento retroativo pode cair numa fatura já quitada.
+        // Aceitar silenciosamente faria a fatura paga "crescer".
+        throw new Error(
+          `A fatura de ${mesPorExtenso(fatura.mesReferencia)} já foi paga; ` +
+            `a parcela ${p.n}/${p.de} não pode entrar nela.`,
+        );
+      }
+
+      const id = newId();
+      tx.insert(transactions)
+        .values({
+          id,
+          userId,
+          kind: input.estorno ? 'receita' : 'despesa',
+          amountCents: p.amountCents,
+          currency: 'BRL',
+          competencia: p.competencia,
+          descricao: input.descricao ?? '',
+          categoryId: input.categoryId ?? null,
+          accountId: null,
+          creditCardId: card.id,
+          invoiceId: fatura.id,
+          // A compra aconteceu; a dívida mora na fatura. Marcar como não
+          // paga faria toda compra no cartão aparecer "pendente" na lista.
+          pago: true,
+          pagoEm: null,
+          seriesId,
+          parcelaN: parcelado ? p.n : null,
+          parcelaDe: parcelado ? p.de : null,
+          importBatchId: input.importBatchId ?? null,
+          idExterno: input.idExterno ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .run();
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  function pagar(tx: Q, input: PagamentoDeFatura, userId: string): string {
+    const fatura = tx
+      .select()
+      .from(invoices)
+      .where(
+        and(
+          eq(invoices.id, input.invoiceId),
+          eq(invoices.userId, userId),
+          isNull(invoices.deletedAt),
+        ),
+      )
+      .get();
+    if (!fatura) throw new Error('Fatura não encontrada.');
+    if (fatura.status === 'paga') throw new Error('Esta fatura já foi paga.');
+    if (statusDaFatura(fatura.dataFechamento, false, input.data) !== 'fechada') {
+      throw new Error(
+        `A fatura fecha em ${dataBr(fatura.dataFechamento)}. ` +
+          'O pagamento fica disponível depois do fechamento.',
+      );
+    }
+
+    const conta = tx
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.id, input.accountId),
+          eq(accounts.userId, userId),
+          isNull(accounts.deletedAt),
+        ),
+      )
+      .get();
+    if (!conta) throw new Error('Conta de pagamento não encontrada.');
+
+    const card = buscarCartao(tx, fatura.creditCardId, userId);
+
+    const itens = tx
+      .select({ kind: transactions.kind, amountCents: transactions.amountCents })
+      .from(transactions)
+      .where(and(eq(transactions.invoiceId, fatura.id), isNull(transactions.deletedAt)))
+      .all();
+    const total = totalDaFatura(itens);
+    if (total <= 0) throw new Error('Não há valor a pagar nesta fatura.');
+
+    const ts = nowIso();
+    const id = newId();
+    tx.insert(transactions)
+      .values({
+        id,
+        userId,
+        kind: 'pagamento_fatura',
+        amountCents: total,
+        currency: 'BRL',
+        competencia: input.data,
+        descricao: `Fatura ${card?.nome ?? 'do cartão'}`,
+        categoryId: null,
+        accountId: input.accountId,
+        creditCardId: fatura.creditCardId,
+        invoiceId: fatura.id,
+        pago: true,
+        pagoEm: input.data,
+        importBatchId: input.importBatchId ?? null,
+        idExterno: input.idExterno ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+
+    tx.update(invoices)
+      .set({ status: 'paga', pagamentoTxId: id, updatedAt: ts })
+      .where(eq(invoices.id, fatura.id))
+      .run();
+
+    return id;
+  }
+
   // ---------------------------------------------------------------- API
 
   return {
@@ -290,57 +443,7 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
      *  schema.sql). Tudo numa transação: ou entram todas as parcelas, ou
      *  nenhuma. */
     async addCardPurchase(input: CompraNoCartao, userId = padrao): Promise<string[]> {
-      return db.transaction((tx) => {
-        const card = buscarCartao(tx, input.cardId, userId);
-        if (!card) throw new Error('Cartão não encontrado.');
-
-        const plano = planoDeCompra(input.competencia, ciclo(card), input.amountCents, input.parcelas);
-        const parcelado = plano.length > 1;
-        const seriesId = parcelado ? newId() : null;
-        const ts = nowIso();
-        const ids: string[] = [];
-
-        for (const p of plano) {
-          const fatura = garantirFatura(tx, userId, card, p.fatura, ts);
-          if (fatura.status === 'paga') {
-            // Não deveria acontecer com data de hoje (só paga fatura fechada),
-            // mas lançamento retroativo pode cair numa fatura já quitada.
-            // Aceitar silenciosamente faria a fatura paga "crescer".
-            throw new Error(
-              `A fatura de ${dataBr(fatura.mesReferencia).slice(3)} já foi paga; ` +
-                `a parcela ${p.n}/${p.de} não pode entrar nela.`,
-            );
-          }
-
-          const id = newId();
-          tx.insert(transactions)
-            .values({
-              id,
-              userId,
-              kind: 'despesa',
-              amountCents: p.amountCents,
-              currency: 'BRL',
-              competencia: p.competencia,
-              descricao: input.descricao ?? '',
-              categoryId: input.categoryId ?? null,
-              accountId: null,
-              creditCardId: card.id,
-              invoiceId: fatura.id,
-              // A compra aconteceu; a dívida mora na fatura. Marcar como não
-              // paga faria toda compra no cartão aparecer "pendente" na lista.
-              pago: true,
-              pagoEm: null,
-              seriesId,
-              parcelaN: parcelado ? p.n : null,
-              parcelaDe: parcelado ? p.de : null,
-              createdAt: ts,
-              updatedAt: ts,
-            })
-            .run();
-          ids.push(id);
-        }
-        return ids;
-      });
+      return db.transaction((tx) => comprar(tx, input, userId));
     },
 
     async invoices(cardId: string, hoje: CivilDate, userId = padrao): Promise<FaturaResumo[]> {
@@ -370,83 +473,15 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
      *  Só fatura FECHADA pode ser paga. Pagar uma aberta deixaria compras
      *  novas entrarem numa fatura já quitada — o banco trata isso como
      *  pagamento antecipado parcial, e modelar parcial fica para depois. */
-    async payInvoice(
-      input: { invoiceId: string; accountId: string; data: CivilDate },
-      userId = padrao,
-    ): Promise<string> {
-      return db.transaction((tx) => {
-        const fatura = tx
-          .select()
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.id, input.invoiceId),
-              eq(invoices.userId, userId),
-              isNull(invoices.deletedAt),
-            ),
-          )
-          .get();
-        if (!fatura) throw new Error('Fatura não encontrada.');
-        if (fatura.status === 'paga') throw new Error('Esta fatura já foi paga.');
-        if (statusDaFatura(fatura.dataFechamento, false, input.data) !== 'fechada') {
-          throw new Error(
-            `A fatura fecha em ${dataBr(fatura.dataFechamento)}. ` +
-              'O pagamento fica disponível depois do fechamento.',
-          );
-        }
+    async payInvoice(input: PagamentoDeFatura, userId = padrao): Promise<string> {
+      return db.transaction((tx) => pagar(tx, input, userId));
+    },
 
-        const conta = tx
-          .select({ id: accounts.id })
-          .from(accounts)
-          .where(
-            and(
-              eq(accounts.id, input.accountId),
-              eq(accounts.userId, userId),
-              isNull(accounts.deletedAt),
-            ),
-          )
-          .get();
-        if (!conta) throw new Error('Conta de pagamento não encontrada.');
-
-        const card = buscarCartao(tx, fatura.creditCardId, userId);
-
-        const itens = tx
-          .select({ kind: transactions.kind, amountCents: transactions.amountCents })
-          .from(transactions)
-          .where(and(eq(transactions.invoiceId, fatura.id), isNull(transactions.deletedAt)))
-          .all();
-        const total = totalDaFatura(itens);
-        if (total <= 0) throw new Error('Não há valor a pagar nesta fatura.');
-
-        const ts = nowIso();
-        const id = newId();
-        tx.insert(transactions)
-          .values({
-            id,
-            userId,
-            kind: 'pagamento_fatura',
-            amountCents: total,
-            currency: 'BRL',
-            competencia: input.data,
-            descricao: `Fatura ${card?.nome ?? 'do cartão'}`,
-            categoryId: null,
-            accountId: input.accountId,
-            creditCardId: fatura.creditCardId,
-            invoiceId: fatura.id,
-            pago: true,
-            pagoEm: input.data,
-            createdAt: ts,
-            updatedAt: ts,
-          })
-          .run();
-
-        tx.update(invoices)
-          .set({ status: 'paga', pagamentoTxId: id, updatedAt: ts })
-          .where(eq(invoices.id, fatura.id))
-          .run();
-
-        return id;
-      });
+    /** As mesmas escritas, dentro de uma transação aberta por quem chama —
+     *  a importação de extrato grava o lote inteiro ou nada. */
+    em: {
+      compra: (q: Q, input: CompraNoCartao, userId = padrao) => comprar(q, input, userId),
+      pagarFatura: (q: Q, input: PagamentoDeFatura, userId = padrao) => pagar(q, input, userId),
     },
 
     /** Resumo para a lista de cartões (S10). */

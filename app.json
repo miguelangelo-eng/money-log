@@ -2,7 +2,7 @@
   "expo": {
     "name": "Money Log",
     "slug": "money-log",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "moneylog",
@@ -23,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.miguelangelo.moneylog"
+      "package": "com.miguelangelo.moneylog",
+      "versionCode": 2
     },
     "plugins": [
       "expo-router",

@@ -186,9 +186,18 @@ export const transactions = sqliteTable(
     parcelaDe: integer('parcela_de'),
 
     importBatchId: text('import_batch_id').references(() => importBatches.id),
+    /** Id da linha no extrato do banco (src/lib/extrato/ler.ts). Único por
+     *  usuário, INCLUSIVE em linha excluída: o que foi importado e apagado de
+     *  propósito não volta na próxima importação. O hash do arquivo em
+     *  import_batches não basta: dois extratos com períodos sobrepostos têm
+     *  hashes diferentes e as mesmas transações. Ver nota [I]. */
+    idExterno: text('id_externo'),
     ...stamps(),
   },
   (t) => [
+    uniqueIndex('tx_id_externo_unico')
+      .on(t.userId, t.idExterno)
+      .where(sql`"id_externo" is not null`),
     // A consulta mais frequente do app: a lista do mês (S04).
     index('tx_user_competencia_idx').on(t.userId, t.competencia),
     // Relatório por categoria (S15).

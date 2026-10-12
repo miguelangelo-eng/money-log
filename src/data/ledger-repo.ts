@@ -112,6 +112,10 @@ export interface NovaDespesa {
    *  segue a data também: futuro é pendente. */
   pago?: boolean;
   repeticao?: Repeticao;
+  /** Importação de extrato: id da linha no banco e o lote. Só em lançamento
+   *  único — uma linha do extrato é uma ocorrência. */
+  idExterno?: string;
+  importBatchId?: string;
 }
 
 export interface NovaTransferencia {
@@ -120,6 +124,8 @@ export interface NovaTransferencia {
   deContaId: string;
   paraContaId: string;
   descricao?: string;
+  idExterno?: string;
+  importBatchId?: string;
 }
 
 /** Campos editáveis. O que cada tipo de lançamento aceita é decidido em
@@ -200,11 +206,14 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
   const pagoPelaData = (competencia: CivilDate) => competencia <= hoje();
   const maior = (a: CivilDate, b: CivilDate) => (a > b ? a : b);
 
-  function inserirSimples(kind: 'despesa' | 'receita', input: NovaDespesa, userId: string): string {
+  function inserirSimples(q: Q, kind: 'despesa' | 'receita', input: NovaDespesa, userId: string): string {
     validarValor(input.amountCents);
     const competencia = input.competencia ?? hoje();
     validarData(competencia);
     const rep = input.repeticao ?? { tipo: 'unica' };
+    if (input.idExterno && rep.tipo !== 'unica') {
+      throw new Error('Lançamento importado não se repete.');
+    }
     if (
       rep.tipo === 'parcelado' &&
       (!Number.isInteger(rep.parcelas) || rep.parcelas < 2 || rep.parcelas > PARCELAS_MAX)
@@ -231,40 +240,79 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
             }))
           : [{ competencia, amountCents: input.amountCents, n: null, de: null }];
 
-    return db.transaction((tx) => {
-      contaDoUsuario(tx, input.accountId, userId);
-      categoriaValida(tx, input.categoryId, kind, userId);
+    contaDoUsuario(q, input.accountId, userId);
+    categoriaValida(q, input.categoryId, kind, userId);
 
-      const seriesId = rep.tipo === 'unica' ? null : newId();
-      const ts = nowIso();
-      const ids: string[] = [];
-      linhas.forEach((l, i) => {
-        const pago = i === 0 && input.pago !== undefined ? input.pago : pagoPelaData(l.competencia);
-        const id = newId();
-        tx.insert(transactions)
-          .values({
-            id,
-            userId,
-            kind,
-            amountCents: l.amountCents,
-            currency: 'BRL',
-            competencia: l.competencia,
-            descricao: (input.descricao ?? '').trim(),
-            categoryId: input.categoryId ?? null,
-            accountId: input.accountId,
-            pago,
-            pagoEm: pago ? (l.competencia <= hoje() ? l.competencia : hoje()) : null,
-            seriesId,
-            parcelaN: l.n,
-            parcelaDe: l.de,
-            createdAt: ts,
-            updatedAt: ts,
-          })
-          .run();
-        ids.push(id);
-      });
-      return ids[0];
+    const seriesId = rep.tipo === 'unica' ? null : newId();
+    const ts = nowIso();
+    const ids: string[] = [];
+    linhas.forEach((l, i) => {
+      const pago = i === 0 && input.pago !== undefined ? input.pago : pagoPelaData(l.competencia);
+      const id = newId();
+      q.insert(transactions)
+        .values({
+          id,
+          userId,
+          kind,
+          amountCents: l.amountCents,
+          currency: 'BRL',
+          competencia: l.competencia,
+          descricao: (input.descricao ?? '').trim(),
+          categoryId: input.categoryId ?? null,
+          accountId: input.accountId,
+          pago,
+          pagoEm: pago ? (l.competencia <= hoje() ? l.competencia : hoje()) : null,
+          seriesId,
+          parcelaN: l.n,
+          parcelaDe: l.de,
+          importBatchId: input.importBatchId ?? null,
+          idExterno: input.idExterno ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .run();
+      ids.push(id);
     });
+    return ids[0];
+  }
+
+  /** Transferência: UMA linha com origem e destino, nunca duas. Duas linhas
+   *  (uma despesa e uma receita) somariam no relatório como gasto e entrada
+   *  — o erro clássico desta classe de app. */
+  function inserirTransferencia(q: Q, input: NovaTransferencia, userId: string): string {
+    validarValor(input.amountCents);
+    const competencia = input.competencia ?? hoje();
+    validarData(competencia);
+    if (input.deContaId === input.paraContaId) {
+      throw new Error('Origem e destino precisam ser contas diferentes.');
+    }
+    contaDoUsuario(q, input.deContaId, userId);
+    contaDoUsuario(q, input.paraContaId, userId);
+
+    const pago = pagoPelaData(competencia);
+    const ts = nowIso();
+    const id = newId();
+    q.insert(transactions)
+      .values({
+        id,
+        userId,
+        kind: 'transferencia',
+        amountCents: input.amountCents,
+        currency: 'BRL',
+        competencia,
+        descricao: (input.descricao ?? '').trim(),
+        categoryId: null,
+        accountId: input.deContaId,
+        transferAccountId: input.paraContaId,
+        pago,
+        pagoEm: pago ? competencia : null,
+        importBatchId: input.importBatchId ?? null,
+        idExterno: input.idExterno ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    return id;
   }
 
   /** Todas as linhas da série, INCLUSIVE as excluídas, em ordem de data. As
@@ -659,51 +707,24 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
     // ----------------------------------------------------------- lançamentos
 
     async addExpense(input: NovaDespesa, userId = padrao): Promise<string> {
-      return inserirSimples('despesa', input, userId);
+      return db.transaction((tx) => inserirSimples(tx, 'despesa', input, userId));
     },
 
     async addIncome(input: NovaDespesa, userId = padrao): Promise<string> {
-      return inserirSimples('receita', input, userId);
+      return db.transaction((tx) => inserirSimples(tx, 'receita', input, userId));
     },
 
-    /** Transferência: UMA linha com origem e destino, nunca duas. Duas linhas
-     *  (uma despesa e uma receita) somariam no relatório como gasto e entrada
-     *  — o erro clássico desta classe de app. */
+    /** As mesmas escritas, dentro de uma transação aberta por quem chama —
+     *  a importação de extrato grava o lote inteiro ou nada. */
+    em: {
+      despesa: (q: Q, input: NovaDespesa, userId = padrao) => inserirSimples(q, 'despesa', input, userId),
+      receita: (q: Q, input: NovaDespesa, userId = padrao) => inserirSimples(q, 'receita', input, userId),
+      transferencia: (q: Q, input: NovaTransferencia, userId = padrao) =>
+        inserirTransferencia(q, input, userId),
+    },
+
     async addTransfer(input: NovaTransferencia, userId = padrao): Promise<string> {
-      validarValor(input.amountCents);
-      const competencia = input.competencia ?? hoje();
-      validarData(competencia);
-      if (input.deContaId === input.paraContaId) {
-        throw new Error('Origem e destino precisam ser contas diferentes.');
-      }
-
-      return db.transaction((tx) => {
-        contaDoUsuario(tx, input.deContaId, userId);
-        contaDoUsuario(tx, input.paraContaId, userId);
-
-        const pago = pagoPelaData(competencia);
-        const ts = nowIso();
-        const id = newId();
-        tx.insert(transactions)
-          .values({
-            id,
-            userId,
-            kind: 'transferencia',
-            amountCents: input.amountCents,
-            currency: 'BRL',
-            competencia,
-            descricao: (input.descricao ?? '').trim(),
-            categoryId: null,
-            accountId: input.deContaId,
-            transferAccountId: input.paraContaId,
-            pago,
-            pagoEm: pago ? competencia : null,
-            createdAt: ts,
-            updatedAt: ts,
-          })
-          .run();
-        return id;
-      });
+      return db.transaction((tx) => inserirTransferencia(tx, input, userId));
     },
 
     /** Edita um lançamento — ou vários, numa série. O que pode mudar depende

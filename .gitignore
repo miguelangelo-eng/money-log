@@ -47,3 +47,9 @@ example
 
 # Supabase CLI: estado local (project-ref do link, versão do CLI). Nunca no git.
 supabase/.temp/
+
+# Extratos bancários: dado pessoal, nunca no git. Os testes usam extratos
+# inventados, escritos dentro dos próprios testes.
+*.ofx
+*.OFX
+/*.csv

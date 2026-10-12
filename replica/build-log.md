@@ -598,3 +598,42 @@ comercial para um bot de duas pessoas; o usuário preferiu pausar.
 
 O botão "Lançar pelo WhatsApp" ficou atrás de `EXPO_PUBLIC_WHATSAPP_NUMERO`;
 como não está configurado, some do app. Retomar: ver o SETUP.md.
+
+## 2026-10-12 — Importar extrato (versão 1.1.0)
+
+Feito a partir de extratos reais de setembro (conta em OFX e CSV, fatura em
+CSV), analisados só localmente; os testes usam extratos inventados com as
+mesmas manhas.
+
+**O que os arquivos ensinaram:**
+
+- O CSV da conta **repete o identificador** no par do Pix no Crédito; o OFX
+  distingue a segunda linha com `:reversal`. O leitor faz igual no CSV, e os
+  dois formatos geram os mesmos ids — conferido nos arquivos reais.
+- A fatura não tem id: impressão digital (data, valor, texto, ordem entre
+  iguais). Valor com vírgula entre aspas, positivo = gasto, `"- 1.234,56"` =
+  pagamento, aspas dobradas no IOF.
+- Na conta, a **maior parte** das saídas do mês **não era gasto**
+  (fatura, RDB, Pix no Crédito, Pix entre contas próprias). Importar linha a
+  linha como despesa teria mais que dobrado o mês. Daí as regras e a prévia.
+- O hash do arquivo (`import_batches.sha256`, já previsto no schema) não
+  basta: extratos sobrepostos têm hashes diferentes. Coluna nova
+  `transactions.id_externo`, única por usuário inclusive em linha excluída.
+
+**Decisões:** pagamento de fatura só se liga a fatura fechada com o mesmo
+total (senão o saldo mentiria); o aprendizado vem do histórico de
+lançamentos, sem tabela de regras nova (sincroniza de graça); ajuste de saldo
+mexe no saldo inicial, não cria receita.
+
+**Refatoração:** as escritas de `ledger-repo` e `cards` ganharam variantes
+`em.*(tx, ...)` para a importação gravar o lote numa transação só. A
+mensagem "A fatura de 08 já foi paga" virou "agosto de 2026".
+
+**Testes:** 187 (11 do leitor, 13 da importação contra SQLite real).
+Mutação: 6 aplicadas, 4 mortas de primeira. "Pagamento liga a fatura de outro
+valor" sobreviveu, ganhou teste e morreu. "Histórico de outro usuário" segue
+viva de propósito: a categoria/conta sugerida é conferida de novo contra as
+da pessoa, então tirar só o filtro não muda o resultado (duas camadas).
+
+**Não visto no aparelho.** Exige APK 1.1.0 (expo-document-picker e
+expo-file-system são nativos) e o `supabase/importacao.sql` no projeto.

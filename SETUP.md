@@ -58,13 +58,17 @@ Os repositórios recebem banco, id, relógio e usuário por injeção. É o que
 deixa os testes de `src/data/` rodarem contra o `node:sqlite` do Node 24 — o
 mesmo motor do aparelho — com a migração real.
 
-## Estado (2026-10-11)
+## Estado (2026-10-12)
 
 **Validado no Android:** M0, M2 (cartão), grupo 1, M1 (login, backup e
 sincronização com o Supabase, com as duas contas reais), grupo 2, ícone na
 categoria, orçamento e rosca de gastos. O app roda como **APK** nos dois
-celulares (seção "App instalável"). **Todos os 23 obrigatórios feitos**;
-paridade **72,9/100**. `npm run verify`: **146 testes**.
+celulares (seção "App instalável"). **Todos os 23 obrigatórios feitos**.
+`npm run verify`: **187 testes**.
+
+**Importar extrato (versão 1.1.0):** feito e testado, ainda **não visto no
+aparelho**. Exige APK novo e um SQL no Supabase: seção "Importar extrato do
+banco".
 
 Código em [github.com/miguelangelo-eng/money-log](https://github.com/miguelangelo-eng/money-log)
 (público). Os commits usam o e-mail noreply do GitHub, configurado só neste
@@ -74,7 +78,7 @@ repositório; o GitHub recusa push que exponha o e-mail pessoal.
 
 **Próximo:** os desejáveis
 (`should` em [`replica/features.csv`](replica/features.csv)): busca e filtro,
-alertas, exportar CSV, importar OFX/CSV, login com Google. `python
+alertas, exportar CSV, login com Google. `python
 ~/.claude/skills/replica-diff/parity.py replica/features.csv` recalcula a
 paridade.
 
@@ -244,6 +248,61 @@ subir `version` no `app.json` (ex.: 1.0.0 → 1.1.0) e gerar o APK. A
 `runtimeVersion` segue a versão do app (`policy: appVersion`), então uma
 atualização nunca chega a um APK de versão diferente — que é o que impede
 JavaScript novo de rodar sobre código nativo velho.
+
+## Importar extrato do banco
+
+Lê o extrato da conta (OFX ou CSV) e a fatura do cartão (CSV) do Nubank;
+OFX de outros bancos também lê, com menos regras prontas. Entrada:
+**Lançamentos → Importar extrato do banco**.
+
+**Para ligar (uma vez):**
+
+1. **SQL no Supabase**, antes da primeira importação: SQL Editor → colar
+   [`supabase/importacao.sql`](supabase/importacao.sql) → Run. Acrescenta a
+   coluna `id_externo`. Sem ela o backup perde o id das linhas importadas, e
+   um celular restaurado importaria tudo de novo. Projeto novo já recebe
+   isso pelo `replica/schema.sql`.
+2. **APK novo** (versão 1.1.0): o seletor de arquivo é dependência nativa,
+   então a atualização pelo ar não chega ao APK 1.0.0 — ver "Quando precisa
+   de APK novo". `npx.cmd eas-cli@24.8.0 build -p android --profile preview`
+   e instalar por cima nos dois celulares; os dados ficam.
+
+**No app do Nubank:** conta → extrato → exportar (OFX ou CSV, escolher o
+período); cartão → fatura → exportar CSV. O arquivo vai para Downloads.
+
+**Ordem:** fatura primeiro, depois a conta. O "Pagamento de fatura" da conta
+só se liga a uma fatura **fechada** do app com o **mesmo total**; se não
+achar, a linha fica como "ignorar" e a fatura se paga pela tela do cartão.
+Pagar o total do app por um débito de outro valor faria o saldo mentir.
+
+**O que o app faz sozinho** (regras em `src/lib/extrato/regras.ts`; o resto
+em `src/data/importacao.ts`):
+
+- **Não duplica:** cada linha guarda o id do banco (`id_externo`). Extratos
+  com períodos sobrepostos, ou o OFX e o CSV do mesmo mês, não duplicam; o
+  mesmo arquivo duas vezes é recusado. Linha importada e **excluída** não
+  volta. O que foi lançado à mão (mesmo valor e sentido, até 3 dias de
+  diferença) é **conciliado**: ganha o id do banco em vez de virar outro
+  lançamento.
+- **Pix no Crédito:** o par entrada/saída na conta é ignorado; o gasto vem na
+  fatura.
+- **RDB / caixinha:** transferência para a conta "Investimentos" (criada na
+  primeira vez).
+- **Aprende:** a escolha feita na prévia vira histórico. O Pix vindo do seu
+  próprio nome: na primeira vez, marque "Transferência de" uma conta nova
+  (ex.: Santander); nas próximas, o app sugere sozinho. Categoria trocada
+  também é lembrada, e na prévia a escolha vale para as linhas iguais.
+- **Palpite de categoria** pela palavra (99/Uber → Transporte, Spotify →
+  Assinaturas, ...), quando não há histórico. IOF herda a categoria da compra.
+- **Fatura:** compra em fatura já paga no app não entra; parcela vira "Loja
+  (7/10)"; estorno abate da fatura.
+- **Saldo:** com OFX, compara o saldo final do banco com o do app e oferece
+  ajustar o **saldo inicial** da conta (o caso típico: a conta foi cadastrada
+  com zero). Não cria lançamento de ajuste, que contaria como receita.
+
+**Privacidade:** o arquivo é lido no celular e não vai a lugar nenhum; só os
+lançamentos gerados sobem no backup. Extrato não entra no git (`*.ofx` e
+`/*.csv` no `.gitignore`); os testes usam extratos inventados.
 
 ## Lançar pelo WhatsApp — EM BACKLOG
 

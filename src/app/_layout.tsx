@@ -166,6 +166,7 @@ export default function RootLayout() {
       <Stack.Screen name="backup" options={{ title: 'Backup e conta' }} />
       <Stack.Screen name="limite" options={{ title: 'Limite', presentation: 'modal' }} />
       <Stack.Screen name="whatsapp" options={{ title: 'Lançar pelo WhatsApp' }} />
+      <Stack.Screen name="importar" options={{ title: 'Importar extrato' }} />
     </Stack>
   );
 }
