@@ -9,6 +9,7 @@
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Entrar } from '@/components/entrar';
+import { SecaoVersao } from '@/components/versao';
 import { Button, Card, SectionHeader, Txt } from '@/components/ui/primitives';
 import { space, useTheme } from '@/design/theme';
 import { sincronizarAgora, sync, useStatusSync } from '@/sync';
@@ -35,6 +36,7 @@ export default function Backup() {
           Os dados existem só neste aparelho. Se o celular for perdido ou o app desinstalado, eles se
           perdem. O backup liga quando o app é configurado com um projeto do Supabase (ver SETUP.md).
         </Txt>
+        <SecaoVersao />
       </ScrollView>
     );
   }
@@ -116,6 +118,9 @@ export default function Backup() {
         loading={status.sincronizando}
         disabled={status.sincronizando}
       />
+
+      <View style={{ height: space[6] }} />
+      <SecaoVersao />
 
       <View style={{ height: space[6] }} />
       <Button label="Sair da conta" variant="secondary" onPress={sair} />

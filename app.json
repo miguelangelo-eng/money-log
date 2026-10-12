@@ -48,6 +48,14 @@
         "projectId": "ebfed55e-a24a-46fd-b6ec-217ae47d5fe1"
       }
     },
-    "owner": "miguelangelo-eng"
+    "owner": "miguelangelo-eng",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ebfed55e-a24a-46fd-b6ec-217ae47d5fe1",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

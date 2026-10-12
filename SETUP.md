@@ -219,9 +219,31 @@ Passo a passo (versão do CLI fixa, para o build ser reproduzível):
 e conta" que "Aguardando envio" está em "nada". O APK é outro app, com banco
 próprio e vazio: entra com a mesma conta e baixa tudo da nuvem.
 
-**Mudou o código?** O APK não se atualiza sozinho: é preciso outro build e
-instalar por cima (mesma keystore, os dados ficam). Atualização pelo ar
-(EAS Update) fica para depois.
+### Atualização pelo ar (EAS Update)
+
+Mudança só de código (telas, regras, textos) chega aos celulares sem APK:
+
+```powershell
+npm.cmd run publicar -- "o que mudou, em uma linha"
+```
+
+O script roda o `verify` e só então publica no canal `preview` com as
+variáveis do ambiente `preview` do EAS. **Não publicar com `eas update` à
+mão sem `--environment preview`**: sem as variáveis do Supabase, o app
+atualizado acha que não tem nuvem, cai no modo só local e para de
+sincronizar, sem erro na tela.
+
+No celular, a atualização é baixada numa abertura e aplicada na seguinte, ou
+na hora por "Backup e conta → Verificar atualização". Os dados ficam: moram
+no SQLite, não no bundle.
+
+**Quando precisa de APK novo:** ao entrar ou mudar dependência NATIVA (o
+que se instala com `npx expo install` e tem código Android, como
+`react-native-svg`), plugin ou configuração nativa do `app.json`. Aí:
+subir `version` no `app.json` (ex.: 1.0.0 → 1.1.0) e gerar o APK. A
+`runtimeVersion` segue a versão do app (`policy: appVersion`), então uma
+atualização nunca chega a um APK de versão diferente — que é o que impede
+JavaScript novo de rodar sobre código nativo velho.
 
 ## Como o sync funciona
 
