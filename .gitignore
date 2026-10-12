@@ -44,3 +44,6 @@ example
 
 # verificacao de bundle
 .bundle-check/
+
+# Supabase CLI: estado local (project-ref do link, versão do CLI). Nunca no git.
+supabase/.temp/
