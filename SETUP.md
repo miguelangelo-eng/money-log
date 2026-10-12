@@ -64,17 +64,17 @@ mesmo motor do aparelho — com a migração real.
 sincronização com o Supabase, com as duas contas reais). O app roda como
 **APK** nos dois celulares (seção "App instalável").
 
-**Grupo 2 (séries e pago/pendente): pronto, não visto no aparelho.**
-Recorrente todo mês, parcelado em conta, "só esta / esta e as próximas /
-todas" e marcar pago ou pendente. Paridade **66,7/100**, must-haves
-**20 de 23**. `npm run verify`: **132 testes**.
+**Pronto, não visto no aparelho:** grupo 2 (recorrente, parcelado em conta,
+"só esta / próximas / todas", pago ou pendente), ícone na categoria,
+orçamento por categoria (aba nova) e rosca de gastos. **Todos os 23
+obrigatórios feitos**; paridade **72,9/100**. `npm run verify`: **146 testes**.
 
-**Não visto no aparelho:** o grupo 2 e pagar a fatura (as regras estão
-testadas).
+**Não visto no aparelho:** tudo da linha acima e pagar a fatura (as regras
+estão testadas).
 
-**Faltam 3 obrigatórios:** orçamento por categoria, rosca de gastos (precisa
-de Skia) e ícone na categoria. Lista completa em
-[`replica/features.csv`](replica/features.csv); `python
+**Próximo:** validar no aparelho e gerar um APK novo. Depois, os desejáveis
+(`should` em [`replica/features.csv`](replica/features.csv)): busca e filtro,
+alertas, exportar CSV, importar OFX/CSV, login com Google. `python
 ~/.claude/skills/replica-diff/parity.py replica/features.csv` recalcula a
 paridade.
 

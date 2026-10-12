@@ -27,6 +27,8 @@ export const color = {
     fillSuccess: '#0ca30c',
     chartSurface: '#fcfcfb',
     chartGridline: '#e1e0d9',
+    /** Fatia não destacada da rosca: contexto, não informação. */
+    chartNeutral: '#c9c8c0',
     scrim: 'rgba(11,11,11,0.45)',
   },
   dark: {
@@ -48,6 +50,7 @@ export const color = {
     fillSuccess: '#0ca30c',
     chartSurface: '#1a1a19',
     chartGridline: '#2c2c2a',
+    chartNeutral: '#4a4a46',
     scrim: 'rgba(0,0,0,0.6)',
   },
 } as const;

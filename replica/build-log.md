@@ -447,3 +447,54 @@ Recorrente, parcelado em conta, "ocorrência ou série" e pago/pendente viraram
 - Renovação com dois aparelhos offline ao mesmo tempo pode gerar o mesmo mês
   duas vezes (cada um gera o seu). Com um aparelho por pessoa, não acontece;
   se acontecer, a duplicata se exclui com "só esta".
+
+## 2026-10-11 — Ícones, orçamento e rosca: 23 de 23 obrigatórios
+
+Paridade: **72,9 / 100** (era 66,7) · must-haves **23 de 23**.
+
+### Ícone na categoria
+
+Catálogo fechado de 36 ícones (Ionicons). O banco guarda uma chave nossa,
+não o glifo. No caminho apareceu um bug de modo escuro: a cor da categoria é
+gravada no tom claro do slot e era desenhada assim no escuro — o roxo ficava
+em 1,82:1. `corNoModo` troca pelo passo escuro do mesmo slot; todos passam de
+3:1.
+
+### Orçamento por categoria (S16, nova aba)
+
+Limite de todo mês ou só de um mês, que tem prioridade nele. Gasto = todas
+as despesas da categoria no mês, o mesmo número do relatório. O estado
+(ok / atenção / estourado) vai sempre em texto além da cor. Os índices únicos
+do SQLite não ignoram linha excluída, então definir de novo reaproveita a
+linha removida — provado por mutação.
+
+### Rosca de gastos (S15)
+
+**Com destaque, não colorida por categoria.** O validador do skill dataviz,
+com `--pairs all` (numa rosca ordenada por tamanho qualquer par pode ser
+vizinho), reprovou os 8 slots: laranja × vermelho em ΔE 7,1 para visão
+normal (Moradia e Outros gastos, duas categorias padrão), laranja × verde em
+3,2 para protanopia. E a cor é escolha da pessoa — duas categorias podem ter
+a mesma. Então: uma fatia selecionada na cor da categoria e maior que as
+outras (forma + cor), o resto em `chartNeutral`, nome, % e valor no centro.
+Toque na fatia ou na linha da lista troca a seleção. Até 6 fatias; com menos
+de 3, sem rosca (anti-padrão do skill).
+
+**react-native-svg em vez de Skia/Victory**, como a arquitetura previa: uma
+rosca estática não precisa de 60 fps, e o Skia pesaria no APK. Percentuais
+por maior resto, para somarem exatamente 100.
+
+### Verificação
+
+| portão | resultado |
+|---|---|
+| `npm run verify` | exit 0 — **146 testes** |
+| `npx expo export --platform android` | exit 0 |
+
+### O que NÃO foi verificado
+
+- Nada destes três rodou no aparelho. A rosca em especial precisa ser vista:
+  o validador checa cor, não layout (nome longo no centro, toque nas fatias
+  pequenas).
+- A lista do relatório não abre os lançamentos filtrados pela categoria
+  (components.md pede); a lista de lançamentos ainda não tem filtro.

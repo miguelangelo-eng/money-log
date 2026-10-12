@@ -7,28 +7,36 @@
  *     já carrega a magnitude e gastar o canal de cor para repetir isso é
  *     desperdício. A identidade vem do nome.
  *
- *  A rosca do design NÃO está aqui: ela exige Skia, que ainda não foi
- *  instalado. A lista ranqueada é a metade que responde "qual categoria me
- *  sangrou" e é também a visão de tabela exigida pela acessibilidade, então o
- *  que falta é a leitura de relance, não a informação. Registrado como
- *  `partial` em features.csv.
+ *  - rosca COM DESTAQUE (src/components/ui/rosca.tsx): a leitura de relance
+ *    de "como está dividido". Uma fatia por vez na cor da categoria, o resto
+ *    em cinza; tocar numa fatia ou numa linha da lista troca a selecionada.
+ *    Até 6 fatias (5 + "Outras"); com menos de 3, sem rosca — a lista basta.
+ *
+ *  A lista ranqueada é a visão de tabela da rosca, e é ela que responde "qual
+ *  categoria me sangrou": comparar ângulos parecidos não é tarefa de rosca.
  */
 
 import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { IconeCategoria } from '@/components/ui/icone-categoria';
 import { Button, Card, EmptyState, SectionHeader, Txt } from '@/components/ui/primitives';
+import { Rosca, type FatiaDaRosca } from '@/components/ui/rosca';
 import { MonthSwitcher, nomeDoMes } from '@/components/ui/widgets';
 import { expensesByCategory, monthTotals } from '@/data/ledger';
 import { useAsync } from '@/data/use-async';
 import { polar, radius, space, useMode, useTheme } from '@/design/theme';
 import { monthStart, today } from '@/lib/civil-date';
 import { formatCents } from '@/lib/money';
+import { agruparParaRosca, FATIAS_MIN, ID_OUTRAS } from '@/lib/rosca';
+
+const SEM_CATEGORIA = '__sem_categoria__';
 
 export default function Relatorios() {
   const t = useTheme();
   const mode = useMode();
   const [mes, setMes] = useState(monthStart(today()));
+  const [selecionado, setSelecionado] = useState<string | null>(null);
 
   const totais = useAsync(() => monthTotals(mes), ['tot', mes]);
   const porCategoria = useAsync(() => expensesByCategory(mes), ['cat', mes]);
@@ -62,11 +70,33 @@ export default function Relatorios() {
   const maiorFatia = Math.max(...fatias.map((f) => f.totalCents), 1);
   const cores = polar[mode];
 
+  // Rosca: 5 maiores + "Outras". O id de cada fatia é o da categoria.
+  const idDe = (f: { categoryId: string | null }) => f.categoryId ?? SEM_CATEGORIA;
+  const grupos = agruparParaRosca(fatias.map((f) => ({ ...f, id: idDe(f) })));
+  const fatiasDaRosca: FatiaDaRosca[] = grupos.map((g) =>
+    'agrupadas' in g
+      ? { id: ID_OUTRAS, nome: `Outras (${g.agrupadas})`, cor: null, totalCents: g.totalCents }
+      : { id: g.id, nome: g.nome, cor: g.categoryId ? g.cor : null, totalCents: g.totalCents },
+  );
+  const naRosca = new Set(fatiasDaRosca.map((f) => f.id));
+  /** Selecionar uma categoria que caiu em "Outras" destaca "Outras". */
+  const fatiaDe = (id: string) => (naRosca.has(id) ? id : ID_OUTRAS);
+  const selecionadaEfetiva =
+    selecionado && fatiasDaRosca.some((f) => f.id === fatiaDe(selecionado))
+      ? fatiaDe(selecionado)
+      : (fatiasDaRosca[0]?.id ?? '');
+
   const vazio = !totais.loading && receita === 0 && despesa === 0;
 
   return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={styles.tela}>
-      <MonthSwitcher mes={mes} onChange={setMes} />
+      <MonthSwitcher
+        mes={mes}
+        onChange={(m) => {
+          setMes(m);
+          setSelecionado(null);
+        }}
+      />
 
       {vazio ? (
         <EmptyState
@@ -101,6 +131,13 @@ export default function Relatorios() {
           </Card>
 
           <SectionHeader>Para onde foi o dinheiro</SectionHeader>
+          {fatiasDaRosca.length >= FATIAS_MIN ? (
+            <Rosca
+              fatias={fatiasDaRosca}
+              selecionadoId={selecionadaEfetiva}
+              onSelect={setSelecionado}
+            />
+          ) : null}
           {porCategoria.loading ? (
             <Txt variant="sm" color="textMuted">
               {'Carregando…'}
@@ -110,17 +147,34 @@ export default function Relatorios() {
               Nenhuma despesa neste mês.
             </Txt>
           ) : (
-            fatias.map((f) => (
-              <Barra
-                key={f.categoryId ?? 'sem-categoria'}
-                rotulo={f.nome}
-                valor={f.totalCents}
-                fracao={f.totalCents / maiorFatia}
-                // Hue única de propósito: o comprimento já diz a magnitude.
-                cor={t.accent}
-                trilha={t.surfaceSunken}
-              />
-            ))
+            fatias.map((f) => {
+              const ativa =
+                fatiasDaRosca.length >= FATIAS_MIN && fatiaDe(idDe(f)) === selecionadaEfetiva;
+              return (
+                <Pressable
+                  key={idDe(f)}
+                  onPress={() => setSelecionado(idDe(f))}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: ativa }}
+                  style={[
+                    styles.itemCategoria,
+                    ativa ? { backgroundColor: t.surfaceSunken } : null,
+                  ]}>
+                  <IconeCategoria icone={f.icone} cor={f.categoryId ? f.cor : null} />
+                  <View style={{ flex: 1 }}>
+                    <Barra
+                      rotulo={f.nome}
+                      valor={f.totalCents}
+                      fracao={f.totalCents / maiorFatia}
+                      // Hue única de propósito: o comprimento já diz a magnitude.
+                      cor={t.accent}
+                      trilha={t.surfaceSunken}
+                      destaque={ativa}
+                    />
+                  </View>
+                </Pressable>
+              );
+            })
           )}
         </>
       )}
@@ -134,12 +188,14 @@ function Barra({
   fracao,
   cor,
   trilha,
+  destaque,
 }: {
   rotulo: string;
   valor: number;
   fracao: number;
   cor: string;
   trilha: string;
+  destaque?: boolean;
 }) {
   const largura = `${Math.max(2, Math.min(100, fracao * 100))}%` as const;
   return (
@@ -147,7 +203,10 @@ function Barra({
       style={{ marginTop: space[3] }}
       accessibilityLabel={`${rotulo}: ${formatCents(valor)}`}>
       <View style={styles.rotuloLinha}>
-        <Txt variant="sm" numberOfLines={1} style={styles.rotulo}>
+        <Txt
+          variant="sm"
+          numberOfLines={1}
+          style={[styles.rotulo, destaque ? { fontWeight: '700' } : null]}>
           {rotulo}
         </Txt>
         <Txt variant="sm" style={{ fontWeight: '600' }}>
@@ -169,4 +228,12 @@ const styles = StyleSheet.create({
   rotulo: { flex: 1 },
   trilha: { height: 10, borderRadius: radius.pill, marginTop: space[1], overflow: 'hidden' },
   preenchimento: { height: '100%', borderRadius: radius.pill },
+  itemCategoria: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    paddingHorizontal: space[2],
+    paddingBottom: space[2],
+    borderRadius: radius.md,
+  },
 });

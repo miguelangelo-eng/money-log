@@ -92,6 +92,7 @@ export interface CategorySlice {
   categoryId: string | null;
   nome: string;
   cor: string;
+  icone: string | null;
   totalCents: Cents;
 }
 
@@ -497,6 +498,7 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
           categoryId: transactions.categoryId,
           nome: categories.nome,
           cor: categories.cor,
+          icone: categories.icone,
           totalCents: sql<number>`coalesce(sum(${transactions.amountCents}), 0)`,
         })
         .from(transactions)
@@ -510,7 +512,7 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
             lte(transactions.competencia, fim),
           ),
         )
-        .groupBy(transactions.categoryId, categories.nome, categories.cor)
+        .groupBy(transactions.categoryId, categories.nome, categories.cor, categories.icone)
         .orderBy(sql`sum(${transactions.amountCents}) desc`)
         .all();
 
@@ -519,6 +521,7 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
         // Despesa sem categoria é possível (o campo é opcional): rotular, não ocultar.
         nome: r.nome ?? 'Sem categoria',
         cor: r.cor ?? '#898781',
+        icone: r.icone,
         totalCents: Number(r.totalCents),
       }));
     },
