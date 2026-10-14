@@ -676,3 +676,16 @@ desfaz exclusões feitas no servidor (o push é upsert sem olhar o que mudou
 lá). Aconteceu com o Expo Go antigo; resolvido com "Sair e apagar".
 
 Testes: 194. Mutações nas correções: todas mortas.
+
+## 2026-10-14 — Parcelas do cartão sumindo
+
+Comparando os meses com o Nubank, setembro e outubro tinham menos saídas no
+app. Causa: o OFX do cartão do Nubank repete o FITID da compra em TODAS as
+parcelas, fatura após fatura (a "parcela 8/10" tem o mesmo id da 7/10). O
+app importava a primeira e descartava as seguintes como "já importadas".
+Agora o id da parcela leva o número (`<fitid>:p8`); parcelas importadas antes
+(FITID puro) são reconhecidas pelo "(n/m)" da descrição, sem duplicar.
+
+O "saiu" do app (gastos por competência: cartão pela data da compra, cada
+parcela no seu mês; sem pagamento de fatura nem RDB) não é o mesmo número do
+resumo do Nubank, cujo critério não deu para reproduzir pelos arquivos.

@@ -190,7 +190,13 @@ function ofx(texto: string): Extrato {
         id = `${chave}#${n}`;
       }
       const base = { idExterno: `${origem}:${banco}:${id}`, data: t.data, valorCents: t.valorCents, original: t.memo };
-      if (origem === 'cartao') return { ...base, ...descricaoDaFatura(t.memo) };
+      if (origem === 'cartao') {
+        // O Nubank repete o FITID da compra em TODAS as parcelas, fatura após
+        // fatura: sem o número, a 8/10 seria "já importada" porque a 7/10
+        // entrou no mês anterior. Ver idParcela em importacao.ts (ids antigos).
+        const f = descricaoDaFatura(t.memo);
+        return { ...base, ...f, idExterno: f.parcela ? `${base.idExterno}:p${f.parcela.n}` : base.idExterno };
+      }
       return { ...base, descricao: nubank ? descricaoDaConta(t.memo) : t.memo, parcela: null };
     }),
   };

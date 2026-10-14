@@ -386,3 +386,43 @@ test('importação parcial: o mesmo arquivo de novo completa só o que falta', a
   assert.equal(r.importadas, 4);
   assert.equal(contar('select count(*) n from transactions'), 5);
 });
+
+// ---------------------------------------------------------------------------
+// Parcelas: o Nubank repete o FITID da compra em todas elas
+// ---------------------------------------------------------------------------
+
+const PARCELA_SET = ofxFatura(['20260813', '-254.80', 'f-loja', 'Loja Ficticia - Parcela 7/10']);
+const PARCELA_OUT = ofxFatura(
+  ['20260913', '-254.80', 'f-loja', 'Loja Ficticia - Parcela 8/10'],
+  ['20260920', '-9.90', 'f-pad', 'Padaria'],
+);
+
+test('parcelas com o mesmo FITID em faturas seguidas: cada uma entra no seu mês', async () => {
+  // Caso real: a 8/10 da fatura de outubro sumia como "já importada" porque
+  // a 7/10, de setembro, tinha o mesmo FITID.
+  const { imp, cards, contar } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 25, diaVencimento: 5, contaPagamentoId: 'nubank' });
+  const destino = { tipo: 'cartao', cartaoId: cardId } as const;
+  await imp.importar(await imp.prever(lerExtrato(PARCELA_SET), destino), arq('set'));
+
+  const p = await imp.prever(lerExtrato(PARCELA_OUT), destino);
+  assert.equal(p.jaImportadas, 0);
+  assert.equal((await imp.importar(p, arq('out'))).importadas, 2);
+  assert.equal(contar(`select count(*) n from transactions where descricao like 'Loja Ficticia (%'`), 2);
+  assert.equal(contar(`select count(*) n from transactions where id_externo = 'cartao:260:f-loja:p8'`), 1);
+});
+
+test('parcela gravada com o id antigo (sem o número) não duplica', async () => {
+  const { raw, imp, cards, contar } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 25, diaVencimento: 5, contaPagamentoId: 'nubank' });
+  const destino = { tipo: 'cartao', cartaoId: cardId } as const;
+  await imp.importar(await imp.prever(lerExtrato(PARCELA_SET), destino), arq('set'));
+  // Como ficou o que foi importado antes da correção: FITID puro.
+  raw.exec(`update transactions set id_externo = 'cartao:260:f-loja' where id_externo = 'cartao:260:f-loja:p7'`);
+
+  const mesmo = await imp.prever(lerExtrato(PARCELA_SET), destino);
+  assert.equal(mesmo.jaImportadas, 1, 'a 7/10 antiga é reconhecida pela descrição');
+  const r = await imp.importar(await imp.prever(lerExtrato(PARCELA_OUT), destino), arq('out'));
+  assert.equal(r.importadas, 2, 'a 8/10 entra');
+  assert.equal(contar(`select count(*) n from transactions where descricao like 'Loja Ficticia (%'`), 2);
+});

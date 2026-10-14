@@ -120,6 +120,19 @@ const origemDoId = (id: string) => id.split(':').slice(0, 2).join(':');
  *  OFX. A mesma compra tem um id em cada formato. */
 const porImpressao = (id: string) => id.includes('|');
 
+/** "cartao:260:<fitid>:p8" -> "cartao:260:<fitid>". */
+const semParcela = (id: string) => id.replace(/:p\d+$/, '');
+
+/** Id de uma linha do banco como o leitor de hoje o gera. Parcela de cartão
+ *  importada antes de 2026-10-14 ficou com o FITID puro — que o Nubank
+ *  repete em todas as parcelas da compra; o número dela está na descrição
+ *  ("Loja (7/10)"). */
+const idParcela = (r: { id: string | null; descricao: string }): string => {
+  const id = r.id!;
+  const p = /\((\d+)\/\d+\)$/.exec(r.descricao);
+  return p && id.startsWith('cartao:') && !/:p\d+$/.test(id) && !porImpressao(id) ? `${id}:p${p[1]}` : id;
+};
+
 /** O texto que o lançamento recebe. Parcela fica visível: "Loja (7/10)". */
 export const descricaoDoLancamento = (l: LinhaExtrato) =>
   l.parcela ? `${l.descricao} (${l.parcela.n}/${l.parcela.de})` : l.descricao;
@@ -153,12 +166,20 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
   function idsExistentes(q: Q, ids: string[], userId: string): Set<string> {
     if (ids.length === 0) return new Set();
     const vivos = lotesVivos(q, userId);
+    // Parcela de cartão gravada antes de o id levar o número (":p7"): está
+    // no banco com o FITID puro. Busca também por ele.
+    const busca = [...new Set([...ids, ...ids.map(semParcela)])];
     const rows = q
-      .select({ id: transactions.idExterno, excluida: transactions.deletedAt, lote: transactions.importBatchId })
+      .select({
+        id: transactions.idExterno,
+        descricao: transactions.descricao,
+        excluida: transactions.deletedAt,
+        lote: transactions.importBatchId,
+      })
       .from(transactions)
-      .where(and(eq(transactions.userId, userId), inArray(transactions.idExterno, ids)))
+      .where(and(eq(transactions.userId, userId), inArray(transactions.idExterno, busca)))
       .all();
-    return new Set(rows.filter((r) => !r.excluida || (r.lote && vivos.has(r.lote))).map((r) => r.id!));
+    return new Set(rows.filter((r) => !r.excluida || (r.lote && vivos.has(r.lote))).map(idParcela));
   }
 
   function saldoNaData(q: Q, contaId: string, data: CivilDate, userId: string): Cents {
