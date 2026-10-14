@@ -53,6 +53,9 @@ const comSinal = (cents: number) => `${cents < 0 ? '−' : '+'} ${formatCents(Ma
 
 export default function Importar() {
   const t = useTheme();
+  // O app desenha até a borda: o rodapé fixo precisa pular a barra de
+  // navegação do Android, senão o botão fica embaixo dela.
+  const inset = useSafeAreaInsets();
   const router = useRouter();
   const contas = useAsync(() => listAccounts(), ['contas']);
   const cartoes = useAsync(() => cards.listCards(), ['cartoes']);
@@ -307,7 +310,11 @@ export default function Importar() {
         {erroTxt}
       </ScrollView>
 
-      <View style={[styles.rodape, { borderColor: t.border, backgroundColor: t.surface }]}>
+      <View
+        style={[
+          styles.rodape,
+          { borderColor: t.border, backgroundColor: t.surface, paddingBottom: space[4] + inset.bottom },
+        ]}>
         <Button
           label={ativas.length === 0 ? 'Nada para importar' : `Importar ${ativas.length} ${ativas.length === 1 ? 'linha' : 'linhas'}`}
           onPress={() => void gravar(previa, arquivo)}
