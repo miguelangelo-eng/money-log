@@ -5,7 +5,9 @@
  *  oferece o que o repositório recusaria, e explica por quê:
  *
  *  - despesa/receita em conta: valor, data, categoria, conta, descrição;
- *  - transferência: valor, data, origem, destino, descrição;
+ *  - transferência: valor, data, origem, destino, descrição — e pode ser
+ *    convertida em receita ou gasto, quando a outra conta não é acompanhada
+ *    no app (o salário que cai em outro banco e vem por Pix);
  *  - compra no cartão: categoria e descrição. Valor e data definem a fatura;
  *  - pagamento de fatura: não se edita; excluir desfaz o pagamento.
  *
@@ -24,6 +26,8 @@ import { Button, Card, EmptyState, Field, SectionHeader, Txt } from '@/component
 import { EscolhaSheet, type OpcaoDaFolha } from '@/components/ui/sheet';
 import { OptionList } from '@/components/ui/widgets';
 import {
+  contarTransferenciasIguais,
+  converterTransferencia,
   deleteTransaction,
   escoposDaSerie,
   getTransaction,
@@ -95,6 +99,18 @@ export default function Lancamento() {
   const escopos = useAsync(
     () => (tx?.seriesId ? escoposDaSerie(tx.id) : Promise.resolve(null)),
     ['escopos', tx?.id ?? null, tx?.seriesId ?? null],
+  );
+
+  // Converter transferência em receita/gasto.
+  const [converter, setConverter] = useState<'receita' | 'despesa' | null>(null);
+  const [categoriaConv, setCategoriaConv] = useState<string | null>(null);
+  const categoriasConv = useAsync(
+    () => (converter ? listCategories(converter) : Promise.resolve([])),
+    ['cats-conv', converter],
+  );
+  const iguais = useAsync(
+    () => (tx?.kind === 'transferencia' ? contarTransferenciasIguais(tx.id) : Promise.resolve(0)),
+    ['iguais', tx?.id ?? null, tx?.kind ?? null],
   );
 
   useEffect(() => {
@@ -312,6 +328,59 @@ export default function Lancamento() {
             rotulo={(c) => c.nome}
             onSelect={(c) => setDestinoId(c.id)}
           />
+
+          <Card style={{ marginTop: space[4] }}>
+            <Txt variant="base" style={{ fontWeight: '600' }}>
+              É entrada ou gasto de verdade?
+            </Txt>
+            <Txt variant="xs" color="textMuted" style={{ marginTop: space[1] }}>
+              {'Quando a outra conta não é acompanhada aqui — o salário que cai em outro banco e vem por Pix, por exemplo. ' +
+                'Receita entra na conta que recebeu; gasto sai da que pagou.'}
+            </Txt>
+            <View style={styles.converter}>
+              {(['receita', 'despesa'] as const).map((k) => (
+                <Button
+                  key={k}
+                  label={k === 'receita' ? 'Converter em receita' : 'Converter em gasto'}
+                  size="sm"
+                  variant={converter === k ? 'primary' : 'secondary'}
+                  onPress={() => {
+                    setConverter(converter === k ? null : k);
+                    setCategoriaConv(null);
+                  }}
+                  style={{ flex: 1 }}
+                />
+              ))}
+            </View>
+            {converter ? (
+              <>
+                <SectionHeader>Categoria</SectionHeader>
+                <OptionList
+                  itens={categoriasConv.data ?? []}
+                  selecionadoId={categoriaConv}
+                  rotulo={(c) => c.nome}
+                  cor={(c) => c.cor}
+                  icone={(c) => c.icone}
+                  onSelect={(c) => setCategoriaConv(c.id === categoriaConv ? null : c.id)}
+                />
+                <Button
+                  label="Converter só este"
+                  onPress={() => void executar(() => converterTransferencia(tx.id, converter, categoriaConv, false))}
+                  disabled={ocupado}
+                  style={{ marginTop: space[3] }}
+                />
+                {(iguais.data ?? 0) > 1 ? (
+                  <Button
+                    label={`Converter este e os iguais (${iguais.data})`}
+                    variant="secondary"
+                    onPress={() => void executar(() => converterTransferencia(tx.id, converter, categoriaConv, true))}
+                    disabled={ocupado}
+                    style={{ marginTop: space[2] }}
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </Card>
         </>
       ) : !pagamento ? (
         <>
@@ -425,4 +494,5 @@ export default function Lancamento() {
 const styles = StyleSheet.create({
   tela: { padding: space[4], paddingBottom: space[8] },
   pagoLinha: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  converter: { flexDirection: 'row', gap: space[2], marginTop: space[3] },
 });

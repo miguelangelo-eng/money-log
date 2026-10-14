@@ -293,10 +293,14 @@ em `src/data/importacao.ts`):
   fatura.
 - **RDB / caixinha:** transferência para a conta "Investimentos" (criada na
   primeira vez).
-- **Aprende:** a escolha feita na prévia vira histórico. O Pix vindo do seu
-  próprio nome: na primeira vez, marque "Transferência de" uma conta nova
-  (ex.: Santander); nas próximas, o app sugere sozinho. Categoria trocada
-  também é lembrada, e na prévia a escolha vale para as linhas iguais.
+- **Aprende:** a escolha feita na prévia vira histórico. Categoria trocada
+  é lembrada, e na prévia a escolha vale para as linhas iguais.
+- **Pix vindo do seu próprio nome:** se a outra conta é acompanhada no app,
+  é "Transferência de" essa conta. Se não é — o salário cai no Santander e
+  vem por Pix para o Nubank —, para o app esse Pix é a **entrada**: marque
+  como receita "Salário". Transferência já gravada se converte na tela do
+  lançamento ("Converter em receita", inclusive "os iguais" de outros
+  meses); a importação seguinte já sugere a receita.
 - **Palpite de categoria** pela palavra (99/Uber → Transporte, Spotify →
   Assinaturas, ...), quando não há histórico. IOF herda a categoria da compra.
 - **Fatura:** compra em fatura já paga no app não entra; parcela vira "Loja

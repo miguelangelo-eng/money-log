@@ -53,6 +53,8 @@ export const {
   addExpense,
   addIncome,
   addTransfer,
+  contarTransferenciasIguais,
+  converterTransferencia,
   updateTransaction,
   deleteTransaction,
   marcarPago,

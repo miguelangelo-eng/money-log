@@ -482,3 +482,17 @@ test('fatura do banco: todas as linhas na mesma fatura do app, inclusive a parce
   assert.equal(faturas.find((f) => f.id === setembro.id)!.totalCents, 1000, 'a paga não mudou');
   assert.equal(contar(`select count(*) n from transactions where competencia = '2026-09-13'`), 1, 'a data da compra continua a do banco');
 });
+
+test('Pix do salário convertido em receita: a próxima importação já sugere a receita', async () => {
+  const { imp, ledger, cat } = await ambiente();
+  const destino = { tipo: 'conta', contaId: 'nubank' } as const;
+  let p = await imp.prever(lerExtrato(SETEMBRO), destino);
+  p = trocar(p, 2, { tipo: 'transferencia', outra: { nova: 'Santander', tipo: 'corrente' } });
+  await imp.importar(p, arq('set'));
+  const pix = (await ledger.listByMonth('2026-09-01')).find((t) => t.descricao === 'FULANO DE TAL')!;
+  await ledger.converterTransferencia(pix.id, 'receita', await cat('Salário'), true);
+
+  const q = await imp.prever(lerExtrato(csvConta(`03/10/2026,4000.00,o1,${pixRecebido('FULANO DE TAL')}`)), destino);
+  assert.deepEqual(q.linhas[0].acao, { tipo: 'receita', categoryId: await cat('Salário') });
+  assert.equal(q.linhas[0].motivo, 'Como da última vez.');
+});

@@ -544,3 +544,37 @@ test('categoria nova guarda o ícone escolhido; fora do catálogo é recusado', 
   const semIcone = await repo.addCategory({ nome: 'Y', tipo: 'despesa', cor: '#1baf7a' });
   assert.equal((await repo.listCategories('despesa')).find((c) => c.id === semIcone)?.icone, 'tag');
 });
+
+test('transferência de conta não acompanhada vira receita na conta que recebeu, com os iguais', async () => {
+  // Caso real: o salário cai no Santander (sem extrato no app) e vem por Pix
+  // para o Nubank. Como transferência, não contava como entrada.
+  const amb = ambiente();
+  const pix = (competencia: string, de = 'b') =>
+    amb.repo.addTransfer({ amountCents: 500000, competencia, deContaId: de, paraContaId: 'a', descricao: 'FULANO DE TAL' });
+  const agosto = await pix('2026-08-05');
+  await pix('2026-09-05');
+  await pix('2026-10-05');
+  await amb.repo.addTransfer({ amountCents: 1000, competencia: '2026-09-06', deContaId: 'b', paraContaId: 'a', descricao: 'OUTRA' });
+
+  assert.equal(await amb.repo.contarTransferenciasIguais(agosto), 3);
+  assert.equal(await amb.repo.converterTransferencia(agosto, 'receita', 'salario', true), 3);
+
+  const t = await amb.repo.monthTotals('2026-09-01');
+  assert.equal(t.receitaCents, 500000, 'o Pix do salário é entrada; a outra transferência, não');
+  const set = (await amb.repo.listByMonth('2026-09-01')).find((x) => x.descricao === 'FULANO DE TAL')!;
+  assert.deepEqual([set.kind, set.accountId, set.transferAccountId, set.categoryId], ['receita', 'a', null, 'salario']);
+  assert.equal(await amb.saldo('a'), 100000 + 1500000 + 1000, 'a conta que recebeu continua com o dinheiro');
+});
+
+test('converter: só transferência, categoria do tipo certo, só esta quando pedido', async () => {
+  const amb = ambiente();
+  const id = await amb.repo.addTransfer({ amountCents: 2000, competencia: '2026-09-05', deContaId: 'a', paraContaId: 'b', descricao: 'LOJA' });
+  await amb.repo.addTransfer({ amountCents: 3000, competencia: '2026-10-05', deContaId: 'a', paraContaId: 'b', descricao: 'LOJA' });
+  await assert.rejects(amb.repo.converterTransferencia(id, 'despesa', 'salario'), /categoria é de receita/);
+
+  assert.equal(await amb.repo.converterTransferencia(id, 'despesa', 'mercado'), 1);
+  const gasto = await amb.repo.getTransaction(id);
+  assert.deepEqual([gasto!.kind, gasto!.accountId], ['despesa', 'a'], 'gasto fica na conta que pagou');
+  await assert.rejects(amb.repo.converterTransferencia(id, 'receita', 'salario'), /Só transferência/);
+  assert.equal(await amb.saldo('a'), 100000 - 2000 - 3000);
+});

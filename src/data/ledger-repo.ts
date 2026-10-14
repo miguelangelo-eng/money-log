@@ -374,6 +374,24 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
     );
   }
 
+  function transferenciasIguais(q: Q, atual: Transaction, userId: string): Transaction[] {
+    if (atual.descricao.trim() === '') return [atual];
+    return q
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          isNull(transactions.deletedAt),
+          eq(transactions.kind, 'transferencia'),
+          eq(transactions.accountId, atual.accountId!),
+          eq(transactions.transferAccountId, atual.transferAccountId!),
+          sql`lower(${transactions.descricao}) = lower(${atual.descricao})`,
+        ),
+      )
+      .all();
+  }
+
   /** Aplica uma edição a UMA linha, com as regras do tipo dela. */
   function editarLinha(q: Q, atual: Transaction, patch: EdicaoLancamento, userId: string) {
     const mudou = <K extends keyof EdicaoLancamento>(k: K) =>
@@ -721,6 +739,53 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
       receita: (q: Q, input: NovaDespesa, userId = padrao) => inserirSimples(q, 'receita', input, userId),
       transferencia: (q: Q, input: NovaTransferencia, userId = padrao) =>
         inserirTransferencia(q, input, userId),
+    },
+
+    /** Transferências iguais a esta: mesma descrição, mesmas contas, mesmo
+     *  sentido. Inclui ela mesma. Para a tela dizer "converter os N". */
+    async contarTransferenciasIguais(id: string, userId = padrao): Promise<number> {
+      const atual = buscar(db, id, userId);
+      if (!atual || atual.kind !== 'transferencia') return 0;
+      return transferenciasIguais(db, atual, userId).length;
+    },
+
+    /** Transferência que é, na verdade, entrada ou gasto: a outra conta não é
+     *  acompanhada no app. Caso real: o salário cai no Santander e vem por
+     *  Pix para o Nubank — para o app, esse Pix é a entrada.
+     *
+     *  Receita fica na conta que RECEBEU o dinheiro; gasto, na que PAGOU.
+     *  Data, valor, descrição e o id do banco ficam. Com `iguais`, converte
+     *  também as outras transferências iguais (os outros meses). Devolve
+     *  quantas converteu. */
+    async converterTransferencia(
+      id: string,
+      para: 'receita' | 'despesa',
+      categoryId: string | null,
+      iguais = false,
+      userId = padrao,
+    ): Promise<number> {
+      return db.transaction((tx) => {
+        const atual = buscar(tx, id, userId);
+        if (!atual) throw new Error('Lançamento não encontrado.');
+        if (atual.kind !== 'transferencia') throw new Error('Só transferência se converte em receita ou gasto.');
+        categoriaValida(tx, categoryId, para, userId);
+
+        const linhas = iguais ? transferenciasIguais(tx, atual, userId) : [atual];
+        const ts = nowIso();
+        for (const l of linhas) {
+          tx.update(transactions)
+            .set({
+              kind: para,
+              accountId: para === 'receita' ? l.transferAccountId : l.accountId,
+              transferAccountId: null,
+              categoryId,
+              updatedAt: ts,
+            })
+            .where(eq(transactions.id, l.id))
+            .run();
+        }
+        return linhas.length;
+      });
     },
 
     async addTransfer(input: NovaTransferencia, userId = padrao): Promise<string> {
