@@ -79,6 +79,11 @@ export interface CompraNoCartao {
   estorno?: boolean;
   /** Importação de extrato. Só à vista: a linha da fatura é uma parcela. */
   idExterno?: string;
+  /** Importação: data que decide a fatura, quando não é a da compra. A
+   *  linha veio numa fatura do banco, e é nela que tem que ficar — o Nubank
+   *  lança as parcelas no dia do fechamento, que pela regra do app cairiam
+   *  na fatura anterior. Só à vista. */
+  dataDaFatura?: CivilDate;
   importBatchId?: string;
 }
 
@@ -90,12 +95,28 @@ export interface PagamentoDeFatura {
   importBatchId?: string;
 }
 
+/** Pagamento de fatura em qualquer valor: o banco aceita pagar antes do
+ *  fechamento e em partes. A fatura que ele quita é escolhida como o banco
+ *  faz — ver faturaDoPagamento. */
+export interface PagamentoAvulso {
+  cardId: string;
+  accountId: string;
+  data: CivilDate;
+  amountCents: Cents;
+  idExterno?: string;
+  importBatchId?: string;
+}
+
 export interface FaturaResumo {
   id: string | null; // null = fatura que ainda não tem nenhuma compra
   mesReferencia: CivilDate;
   dataFechamento: CivilDate;
   dataVencimento: CivilDate;
   totalCents: Cents;
+  /** Soma dos pagamentos ligados a ela (antecipados e parciais incluídos). */
+  pagoCents: Cents;
+  /** O que falta pagar: total − pago, nunca negativo. */
+  devidoCents: Cents;
   status: StatusFatura;
 }
 
@@ -126,6 +147,48 @@ const ciclo = (c: CreditCard): CardCycle => ({
   diaVencimento: c.diaVencimento,
 });
 
+type Item = { id: string; kind: Transaction['kind']; amountCents: Cents; competencia: CivilDate; createdAt: string };
+
+function itensDaFatura(q: Q, invoiceId: string): Item[] {
+  return q
+    .select({
+      id: transactions.id,
+      kind: transactions.kind,
+      amountCents: transactions.amountCents,
+      competencia: transactions.competencia,
+      createdAt: transactions.createdAt,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.invoiceId, invoiceId), isNull(transactions.deletedAt)))
+    .all();
+}
+
+const pagoDe = (itens: Item[]) =>
+  itens.filter((i) => i.kind === 'pagamento_fatura').reduce((a, i) => a + i.amountCents, 0);
+
+/** Regrava o status da fatura a partir dos pagamentos.
+ *
+ *  Paga = os pagamentos cobrem o total E o último foi DEPOIS do fechamento.
+ *  Um pagamento antecipado que cobre o que já foi gasto não fecha a fatura:
+ *  compras novas do mesmo ciclo ainda entram nela (e uma fatura paga não
+ *  aceita compra). Chamado depois de qualquer mudança em pagamento ou compra.
+ */
+export function recalcularStatusDaFatura(q: Q, invoiceId: string, ts: string): void {
+  const f = q.select().from(invoices).where(eq(invoices.id, invoiceId)).get();
+  if (!f) return;
+  const itens = itensDaFatura(q, invoiceId);
+  const total = totalDaFatura(itens);
+  const pagamentos = itens
+    .filter((i) => i.kind === 'pagamento_fatura')
+    .sort((a, b) => a.competencia.localeCompare(b.competencia) || a.createdAt.localeCompare(b.createdAt));
+  const ultimo = pagamentos.at(-1);
+  const paga = total > 0 && pagoDe(itens) >= total && !!ultimo && ultimo.competencia > f.dataFechamento;
+  const status = paga ? 'paga' : 'aberta';
+  const pagamentoTxId = paga ? ultimo!.id : null;
+  if (f.status === status && f.pagamentoTxId === pagamentoTxId) return;
+  q.update(invoices).set({ status, pagamentoTxId, updatedAt: ts }).where(eq(invoices.id, invoiceId)).run();
+}
+
 function validarDia(nome: string, v: number) {
   if (!Number.isInteger(v) || v < 1 || v > 31) {
     throw new Error(`O ${nome} precisa ser um dia entre 1 e 31.`);
@@ -149,10 +212,10 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
       .get();
   }
 
-  /** Faturas do cartão com total e status calculados, da mais antiga para a
-   *  mais nova. */
-  function faturasDoCartao(cardId: string, userId: string, hoje: CivilDate): FaturaResumo[] {
-    const faturas = db
+  /** Faturas do cartão com total, pago e status calculados, da mais antiga
+   *  para a mais nova. */
+  function faturasDoCartao(cardId: string, userId: string, hoje: CivilDate, q: Q = db): FaturaResumo[] {
+    const faturas = q
       .select()
       .from(invoices)
       .where(
@@ -165,40 +228,47 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
       .orderBy(asc(invoices.mesReferencia))
       .all();
 
-    if (faturas.length === 0) return [];
+    return faturas.map((f) => {
+      const itens = itensDaFatura(q, f.id);
+      const totalCents = totalDaFatura(itens);
+      const pagoCents = pagoDe(itens);
+      return {
+        id: f.id,
+        mesReferencia: f.mesReferencia,
+        dataFechamento: f.dataFechamento,
+        dataVencimento: f.dataVencimento,
+        totalCents,
+        pagoCents,
+        devidoCents: Math.max(0, totalCents - pagoCents),
+        status: statusDaFatura(f.dataFechamento, f.status === 'paga', hoje),
+      };
+    });
+  }
 
-    const somas = db
-      .select({
-        invoiceId: transactions.invoiceId,
-        kind: transactions.kind,
-        total: sql<number>`coalesce(sum(${transactions.amountCents}), 0)`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          isNull(transactions.deletedAt),
-          inArray(
-            transactions.invoiceId,
-            faturas.map((f) => f.id),
-          ),
-        ),
-      )
-      .groupBy(transactions.invoiceId, transactions.kind)
-      .all();
-
-    return faturas.map((f) => ({
-      id: f.id,
-      mesReferencia: f.mesReferencia,
-      dataFechamento: f.dataFechamento,
-      dataVencimento: f.dataVencimento,
-      totalCents: totalDaFatura(
-        somas
-          .filter((s) => s.invoiceId === f.id)
-          .map((s) => ({ kind: s.kind, amountCents: Number(s.total) })),
-      ),
-      status: statusDaFatura(f.dataFechamento, f.status === 'paga', hoje),
-    }));
+  /** Que fatura um pagamento feito em `data` quita, como o banco faz: a mais
+   *  antiga já fechada que ainda deve; se nenhuma deve, a do ciclo em curso
+   *  (pagamento antecipado). `pendente` soma pagamentos ainda não gravados,
+   *  por chave — a prévia da importação simula o extrato inteiro. */
+  function faturaDoPagamento(
+    q: Q,
+    card: CreditCard,
+    data: CivilDate,
+    userId: string,
+    pendente: Map<string, Cents> = new Map(),
+  ): { chave: string; id: string | null; ref: InvoiceRef; antecipado: boolean } {
+    for (const f of faturasDoCartao(card.id, userId, data, q)) {
+      if (!f.id || f.dataFechamento >= data) continue;
+      if (f.devidoCents - (pendente.get(f.id) ?? 0) > 0) {
+        return { chave: f.id, id: f.id, ref: f, antecipado: false };
+      }
+    }
+    const ref = invoiceForPurchase(data, ciclo(card));
+    const existente = q
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.creditCardId, card.id), eq(invoices.mesReferencia, ref.mesReferencia), isNull(invoices.deletedAt)))
+      .get();
+    return { chave: existente?.id ?? `mes:${ref.mesReferencia}`, id: existente?.id ?? null, ref, antecipado: true };
   }
 
   /** Busca a fatura do cartão naquele mês; cria se ainda não existir.
@@ -267,11 +337,12 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
   function comprar(tx: Q, input: CompraNoCartao, userId: string): string[] {
     const card = buscarCartao(tx, input.cardId, userId);
     if (!card) throw new Error('Cartão não encontrado.');
-    if ((input.estorno || input.idExterno) && input.parcelas !== 1) {
+    if ((input.estorno || input.idExterno || input.dataDaFatura) && input.parcelas !== 1) {
       throw new Error('Estorno e linha importada são à vista.');
     }
 
     const plano = planoDeCompra(input.competencia, ciclo(card), input.amountCents, input.parcelas);
+    if (input.dataDaFatura) plano[0] = { ...plano[0], fatura: invoiceForPurchase(input.dataDaFatura, ciclo(card)) };
     const parcelado = plano.length > 1;
     const seriesId = parcelado ? newId() : null;
     const ts = nowIso();
@@ -321,6 +392,50 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
     return ids;
   }
 
+  function contaDoUsuario(tx: Q, accountId: string, userId: string) {
+    const conta = tx
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId), isNull(accounts.deletedAt)))
+      .get();
+    if (!conta) throw new Error('Conta de pagamento não encontrada.');
+  }
+
+  function inserirPagamento(
+    tx: Q,
+    fatura: Invoice,
+    card: CreditCard | undefined,
+    input: { accountId: string; data: CivilDate; amountCents: Cents; idExterno?: string; importBatchId?: string },
+    userId: string,
+  ): string {
+    const ts = nowIso();
+    const id = newId();
+    tx.insert(transactions)
+      .values({
+        id,
+        userId,
+        kind: 'pagamento_fatura',
+        amountCents: input.amountCents,
+        currency: 'BRL',
+        competencia: input.data,
+        descricao: `Fatura ${card?.nome ?? 'do cartão'}`,
+        categoryId: null,
+        accountId: input.accountId,
+        creditCardId: fatura.creditCardId,
+        invoiceId: fatura.id,
+        pago: true,
+        pagoEm: input.data,
+        importBatchId: input.importBatchId ?? null,
+        idExterno: input.idExterno ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    recalcularStatusDaFatura(tx, fatura.id, ts);
+    return id;
+  }
+
+  /** Paga o que FALTA de uma fatura fechada (o total, se nada foi pago). */
   function pagar(tx: Q, input: PagamentoDeFatura, userId: string): string {
     const fatura = tx
       .select()
@@ -341,60 +456,29 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
           'O pagamento fica disponível depois do fechamento.',
       );
     }
+    contaDoUsuario(tx, input.accountId, userId);
 
-    const conta = tx
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(
-        and(
-          eq(accounts.id, input.accountId),
-          eq(accounts.userId, userId),
-          isNull(accounts.deletedAt),
-        ),
-      )
-      .get();
-    if (!conta) throw new Error('Conta de pagamento não encontrada.');
+    const itens = itensDaFatura(tx, fatura.id);
+    const devido = totalDaFatura(itens) - pagoDe(itens);
+    if (devido <= 0) throw new Error('Não há valor a pagar nesta fatura.');
 
-    const card = buscarCartao(tx, fatura.creditCardId, userId);
+    return inserirPagamento(tx, fatura, buscarCartao(tx, fatura.creditCardId, userId), { ...input, amountCents: devido }, userId);
+  }
 
-    const itens = tx
-      .select({ kind: transactions.kind, amountCents: transactions.amountCents })
-      .from(transactions)
-      .where(and(eq(transactions.invoiceId, fatura.id), isNull(transactions.deletedAt)))
-      .all();
-    const total = totalDaFatura(itens);
-    if (total <= 0) throw new Error('Não há valor a pagar nesta fatura.');
+  /** Pagamento em qualquer valor, na fatura que o banco quitaria. */
+  function pagarParte(tx: Q, input: PagamentoAvulso, userId: string): string {
+    if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
+      throw new Error('Informe um valor maior que zero.');
+    }
+    const card = buscarCartao(tx, input.cardId, userId);
+    if (!card) throw new Error('Cartão não encontrado.');
+    contaDoUsuario(tx, input.accountId, userId);
 
-    const ts = nowIso();
-    const id = newId();
-    tx.insert(transactions)
-      .values({
-        id,
-        userId,
-        kind: 'pagamento_fatura',
-        amountCents: total,
-        currency: 'BRL',
-        competencia: input.data,
-        descricao: `Fatura ${card?.nome ?? 'do cartão'}`,
-        categoryId: null,
-        accountId: input.accountId,
-        creditCardId: fatura.creditCardId,
-        invoiceId: fatura.id,
-        pago: true,
-        pagoEm: input.data,
-        importBatchId: input.importBatchId ?? null,
-        idExterno: input.idExterno ?? null,
-        createdAt: ts,
-        updatedAt: ts,
-      })
-      .run();
-
-    tx.update(invoices)
-      .set({ status: 'paga', pagamentoTxId: id, updatedAt: ts })
-      .where(eq(invoices.id, fatura.id))
-      .run();
-
-    return id;
+    const escolha = faturaDoPagamento(tx, card, input.data, userId);
+    const fatura = escolha.id
+      ? tx.select().from(invoices).where(eq(invoices.id, escolha.id)).get()!
+      : garantirFatura(tx, userId, card, escolha.ref, nowIso());
+    return inserirPagamento(tx, fatura, card, input, userId);
   }
 
   // ---------------------------------------------------------------- API
@@ -492,12 +576,11 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
         .all();
     },
 
-    /** Paga a fatura inteira. Atômico: cria o pagamento (que tira o dinheiro
-     *  da conta) e marca a fatura como paga, ou não faz nada.
+    /** Paga o que falta da fatura. Atômico: cria o pagamento (que tira o
+     *  dinheiro da conta) e marca a fatura como paga, ou não faz nada.
      *
-     *  Só fatura FECHADA pode ser paga. Pagar uma aberta deixaria compras
-     *  novas entrarem numa fatura já quitada — o banco trata isso como
-     *  pagamento antecipado parcial, e modelar parcial fica para depois. */
+     *  Pela tela, só fatura FECHADA. Pagamento antecipado e em partes, como o
+     *  banco aceita, entra pela importação do extrato (`em.pagarParte`). */
     async payInvoice(input: PagamentoDeFatura, userId = padrao): Promise<string> {
       return db.transaction((tx) => pagar(tx, input, userId));
     },
@@ -507,6 +590,14 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
     em: {
       compra: (q: Q, input: CompraNoCartao, userId = padrao) => comprar(q, input, userId),
       pagarFatura: (q: Q, input: PagamentoDeFatura, userId = padrao) => pagar(q, input, userId),
+      pagarParte: (q: Q, input: PagamentoAvulso, userId = padrao) => pagarParte(q, input, userId),
+    },
+
+    /** Só leitura: que fatura um pagamento quitaria (para a prévia). */
+    async faturaDoPagamento(cardId: string, data: CivilDate, pendente: Map<string, Cents>, userId = padrao) {
+      const card = buscarCartao(db, cardId, userId);
+      if (!card) throw new Error('Cartão não encontrado.');
+      return faturaDoPagamento(db, card, data, userId, pendente);
     },
 
     /** Resumo para a lista de cartões (S10). */
@@ -533,20 +624,23 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
           id: null,
           ...ref,
           totalCents: 0,
+          pagoCents: 0,
+          devidoCents: 0,
           status: statusDaFatura(ref.dataFechamento, false, hoje),
         };
         const naoPagas = faturas.filter((f) => f.status !== 'paga');
         const faturaAPagar =
-          naoPagas.find((f) => f.status === 'fechada' && f.totalCents > 0) ?? null;
+          naoPagas.find((f) => f.status === 'fechada' && f.devidoCents > 0) ?? null;
 
+        // O limite volta com o que já foi pago, inclusive em parte.
         return {
           cartao,
           faturaAtual,
           faturaAPagar,
-          usadoCents: naoPagas.reduce((a, f) => a + f.totalCents, 0),
+          usadoCents: naoPagas.reduce((a, f) => a + f.devidoCents, 0),
           disponivelCents: limiteDisponivel(
             cartao.limiteCents,
-            naoPagas.map((f) => f.totalCents),
+            naoPagas.map((f) => f.devidoCents),
           ),
         };
       });

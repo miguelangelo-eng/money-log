@@ -365,3 +365,21 @@ test('resumo de cartão sem compra: fatura atual zerada, sem erro', async () => 
   assert.equal(r.usadoCents, 0);
   assert.equal(r.disponivelCents, 500000);
 });
+
+test('pagamento antecipado que cobre o gasto não fecha a fatura: compra nova ainda entra', async () => {
+  const { db, repo } = ambiente();
+  const card = await cartaoComum(repo); // fecha dia 28
+  await repo.addCardPurchase({ cardId: card, amountCents: 1000, competencia: '2026-10-05', parcelas: 1 });
+  // Cobre os R$ 10 gastos até agora, mas a fatura ainda não fechou.
+  db.transaction((tx) =>
+    repo.em.pagarParte(tx, { cardId: card, accountId: 'conta-u1', data: '2026-10-10', amountCents: 1000 }),
+  );
+  await repo.addCardPurchase({ cardId: card, amountCents: 500, competencia: '2026-10-20', parcelas: 1 });
+
+  const [f] = await repo.invoices(card, '2026-10-29');
+  assert.deepEqual([f.status, f.totalCents, f.pagoCents, f.devidoCents], ['fechada', 1500, 1000, 500]);
+  // Pela tela, "Pagar" quita só o que falta.
+  await repo.payInvoice({ invoiceId: f.id!, accountId: 'conta-u1', data: '2026-10-29' });
+  const [g] = await repo.invoices(card, '2026-10-29');
+  assert.deepEqual([g.status, g.pagoCents, g.devidoCents], ['paga', 1500, 0]);
+});

@@ -689,3 +689,32 @@ Agora o id da parcela leva o número (`<fitid>:p8`); parcelas importadas antes
 O "saiu" do app (gastos por competência: cartão pela data da compra, cada
 parcela no seu mês; sem pagamento de fatura nem RDB) não é o mesmo número do
 resumo do Nubank, cujo critério não deu para reproduzir pelos arquivos.
+
+## 2026-10-14 — Fatura do arquivo e pagamento em partes
+
+Simulação com os 7 extratos reais (faturas ago–nov, conta ago–out) achou
+duas coisas, agora corrigidas:
+
+1. **Linha de fatura na fatura errada.** O app escolhia a fatura pela data
+   da compra; o Nubank lança as parcelas no dia do fechamento ANTERIOR
+   (13/09 na fatura que fecha em 13/10), e a regra "compra no dia do
+   fechamento entra na fatura que fecha" as mandava para a fatura anterior
+   — às vezes já paga. Agora todas as linhas de um arquivo vão para a
+   fatura do app que contém a compra mais recente dele. Os totais das
+   faturas passaram a bater com o banco (diferença de 1 centavo em duas,
+   arredondamento do Nubank).
+2. **Pagamento de fatura só pelo total exato.** O Nubank aceita pagamento
+   antecipado e em partes; nos extratos reais NENHUM pagamento era igual a
+   um total, os quatro eram ignorados e o saldo da conta ficava ~R$ 4,7 mil
+   acima do banco. Agora: pagamento de qualquer valor, na fatura que o
+   banco quitaria (a fechada mais antiga que deve; senão a em curso). A
+   fatura guarda pago/devido; "paga" quando cobre o total com o último
+   pagamento depois do fechamento (antecipado não fecha a fatura: compra
+   nova do ciclo ainda entra). Limite e "a pagar" usam o devido; excluir um
+   pagamento recalcula a fatura.
+
+Resultado na simulação: faturas de agosto e setembro pagas pelos pagamentos
+do extrato; saldo da conta igual ao do banco a menos de R$ 44,78 constantes
+— o saldo de antes de 01/08, que o ajuste de saldo inicial resolve.
+
+Testes: 200. Mutações nas regras novas: todas mortas.

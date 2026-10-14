@@ -62,7 +62,9 @@ export type OutraConta = { id: string } | { nova: string; tipo: TipoConta };
 export type Acao =
   | { tipo: 'despesa' | 'receita'; categoryId: string | null }
   | { tipo: 'transferencia'; outra: OutraConta }
-  | { tipo: 'pagamento_fatura'; invoiceId: string }
+  /** Pagamento (inteiro, parcial ou antecipado) da fatura deste cartão. A
+   *  fatura quitada é a que o banco quitaria: ver cards.faturaDoPagamento. */
+  | { tipo: 'pagamento_fatura'; cartaoId: string }
   | { tipo: 'conciliar'; transacaoId: string }
   | { tipo: 'ignorar' };
 
@@ -132,6 +134,17 @@ const idParcela = (r: { id: string | null; descricao: string }): string => {
   const p = /\((\d+)\/\d+\)$/.exec(r.descricao);
   return p && id.startsWith('cartao:') && !/:p\d+$/.test(id) && !porImpressao(id) ? `${id}:p${p[1]}` : id;
 };
+
+/** A data que representa a fatura do arquivo: a compra mais recente dele.
+ *  Uma fatura do banco vai de um fechamento ao outro, e todas as linhas dela
+ *  ficam na fatura do app que contém essa data — inclusive as parcelas, que
+ *  o Nubank lança no dia do fechamento ANTERIOR (13/09 na fatura que fecha
+ *  em 13/10) e que, pela data, cairiam na fatura de setembro. */
+export function dataDaFaturaDoArquivo(extrato: Extrato): CivilDate | null {
+  if (extrato.origem !== 'cartao') return null;
+  const datas = extrato.linhas.filter((l) => l.valorCents < 0).map((l) => l.data).sort();
+  return datas.at(-1) ?? null;
+}
 
 /** O texto que o lançamento recebe. Parcela fica visível: "Loja (7/10)". */
 export const descricaoDoLancamento = (l: LinhaExtrato) =>
@@ -343,29 +356,17 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
           : [],
       );
 
-      // Pagamento de fatura: só liga a uma fatura FECHADA, não paga, com o
-      // MESMO total. Valor diferente quer dizer que a fatura no app não bate
-      // com a do banco, e pagar o total do app mentiria sobre o saldo.
-      const cartoesDoUsuario = await cards.listCards(userId);
+      // Pagamento de fatura: o banco aceita pagar antes do fechamento e em
+      // partes, então o valor não precisa bater com o total. Vai para o
+      // cartão que esta conta costuma pagar (ou o primeiro), e a prévia
+      // simula o extrato inteiro para dizer que fatura cada um quita.
       const contaDestino = destino.tipo === 'conta' ? destino.contaId : null;
-      const faturasUsadas = new Set<string>();
-      async function faturaPara(l: LinhaExtrato) {
-        const valor = Math.abs(l.valorCents);
-        // Primeiro os cartões que esta conta costuma pagar.
-        const ordenados = [...cartoesDoUsuario].sort(
-          (a, b) => Number(b.contaPagamentoId === contaDestino) - Number(a.contaPagamentoId === contaDestino),
-        );
-        for (const c of ordenados) {
-          for (const f of await cards.invoices(c.id, l.data, userId)) {
-            if (f.id && f.status === 'fechada' && f.totalCents === valor && !faturasUsadas.has(f.id)) {
-              faturasUsadas.add(f.id);
-              return { invoiceId: f.id, rotulo: `fatura ${c.nome} de ${mesPorExtenso(f.mesReferencia)}` };
-            }
-          }
-        }
-        return null;
-      }
+      const cartoesDoUsuario = await cards.listCards(userId);
+      const cartaoDoPagamento =
+        cartoesDoUsuario.find((c) => c.contaPagamentoId === contaDestino) ?? cartoesDoUsuario[0] ?? null;
+      const pagamentosPendentes = new Map<string, Cents>();
 
+      const refFatura = dataDaFaturaDoArquivo(extrato);
       const linhas: LinhaPrevia[] = [];
       const iofs: Array<{ i: number; texto?: string; id?: string }> = [];
       for (const l of novas) {
@@ -387,21 +388,23 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
           continue;
         }
 
-        if (cartao && faturasPagas.has(invoiceForPurchase(l.data, cartao).mesReferencia)) {
+        if (cartao && faturasPagas.has(invoiceForPurchase(refFatura ?? l.data, cartao).mesReferencia)) {
           sugerir({ tipo: 'ignorar' }, 'A fatura desta data já está paga no app.');
           continue;
         }
 
         if (regra?.tipo === 'pagamento_fatura') {
-          const f = saida ? await faturaPara(l) : null;
-          if (f) sugerir({ tipo: 'pagamento_fatura', invoiceId: f.invoiceId }, `Paga a ${f.rotulo}.`);
-          else {
-            sugerir(
-              { tipo: 'ignorar' },
-              `Nenhuma fatura fechada de ${formatCents(Math.abs(l.valorCents))} no app. ` +
-                'Importe a fatura do cartão antes, ou pague pela tela do cartão.',
-            );
+          if (!saida || !cartaoDoPagamento) {
+            sugerir({ tipo: 'ignorar' }, 'Nenhum cartão cadastrado para receber este pagamento.');
+            continue;
           }
+          const f = await cards.faturaDoPagamento(cartaoDoPagamento.id, l.data, pagamentosPendentes, userId);
+          pagamentosPendentes.set(f.chave, (pagamentosPendentes.get(f.chave) ?? 0) + Math.abs(l.valorCents));
+          const qual = `fatura ${cartaoDoPagamento.nome} de ${mesPorExtenso(f.ref.mesReferencia)}`;
+          sugerir(
+            { tipo: 'pagamento_fatura', cartaoId: cartaoDoPagamento.id },
+            f.antecipado ? `Adianta a ${qual}, ainda aberta.` : `Paga a ${qual}.`,
+          );
           continue;
         }
         if (regra?.tipo === 'investimento') {
@@ -454,6 +457,7 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
     /** Grava o que a prévia (já corrigida pela pessoa) diz. Tudo ou nada. */
     async importar(previa: Previa, arquivo: Arquivo, userId = padrao): Promise<ResultadoImportacao> {
       const { extrato, destino } = previa;
+      const refFatura = dataDaFaturaDoArquivo(extrato);
 
       const r = db.transaction((tx) => {
         const ts = nowIso();
@@ -570,6 +574,7 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
                       parcelas: 1,
                       categoryId: acao.categoryId,
                       estorno: !saida,
+                      dataDaFatura: refFatura ?? undefined,
                       ...comum,
                     },
                     userId,
@@ -603,9 +608,16 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
               }
               case 'pagamento_fatura':
                 if (destino.tipo !== 'conta' || !saida) throw new Error('Pagamento de fatura é saída da conta.');
-                cards.em.pagarFatura(
+                cards.em.pagarParte(
                   tx,
-                  { invoiceId: acao.invoiceId, accountId: destino.contaId, data: l.data, idExterno: l.idExterno, importBatchId: batchId },
+                  {
+                    cardId: acao.cartaoId,
+                    accountId: destino.contaId,
+                    data: l.data,
+                    amountCents: valor,
+                    idExterno: l.idExterno,
+                    importBatchId: batchId,
+                  },
                   userId,
                 );
                 break;

@@ -113,20 +113,52 @@ test('importar: transferências não viram gasto, a fatura fica paga e o saldo f
   assert.equal(contar(`select count(*) n from accounts where nome = 'Investimentos'`), 1, 'criada uma vez só');
 });
 
-test('pagamento de valor diferente da fatura do app não paga a fatura', async () => {
-  const { imp, cards } = await ambiente();
+test('pagamento parcial: sai da conta e abate da fatura, que segue devendo o resto', async () => {
+  const { imp, cards, saldo } = await ambiente();
   const cardId = await cartaoComFaturaDe300(cards);
   const p = await imp.prever(lerExtrato(csvConta('05/09/2026,-250.00,ddd,Pagamento de fatura')), {
     tipo: 'conta',
     contaId: 'nubank',
   });
-  // Pagar os R$ 300 do app por um débito de R$ 250 no banco faria o saldo
-  // da conta mentir. Fica para a pessoa resolver pela tela do cartão.
-  assert.equal(p.linhas[0].acao.tipo, 'ignorar');
-  assert.match(p.linhas[0].motivo!, /Nenhuma fatura fechada de R\$\s250,00/);
-  assert.equal((await cards.invoices(cardId, HOJE))[0].status, 'fechada');
+  assert.deepEqual(p.linhas[0].acao, { tipo: 'pagamento_fatura', cartaoId: cardId });
+  assert.match(p.linhas[0].motivo!, /Paga a fatura Roxinho de agosto de 2026/);
+  await imp.importar(p, arq('parcial'));
+
+  const [f] = await cards.invoices(cardId, HOJE);
+  assert.deepEqual([f.status, f.totalCents, f.pagoCents, f.devidoCents], ['fechada', 30000, 25000, 5000]);
+  assert.equal(await saldo('nubank'), -25000, 'o saldo da conta é o do banco');
+  const [r] = await cards.summaries(HOJE);
+  assert.equal(r.usadoCents, 5000, 'o limite volta com o que foi pago');
+  assert.equal(r.faturaAPagar?.devidoCents, 5000);
 });
 
+test('pagamento antecipado e complemento, como no Nubank: a fatura fica paga e o limite volta', async () => {
+  // Caso real (valores trocados): um pagamento ANTES do fechamento e outro
+  // depois quitaram a fatura. Antes, os dois eram ignorados e o saldo da
+  // conta ficava milhares de reais acima do banco.
+  const { imp, cards, ledger, saldo } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 13, diaVencimento: 20, contaPagamentoId: 'nubank' });
+  await cards.addCardPurchase({ cardId, amountCents: 100000, competencia: '2026-08-01', parcelas: 1 });
+
+  const csv = csvConta('04/08/2026,-900.00,a1,Pagamento de fatura', '14/08/2026,-100.00,a2,Pagamento de fatura');
+  const p = await imp.prever(lerExtrato(csv), { tipo: 'conta', contaId: 'nubank' });
+  assert.match(p.linhas[0].motivo!, /Adianta a fatura Roxinho de agosto de 2026, ainda aberta/);
+  assert.match(p.linhas[1].motivo!, /Paga a fatura Roxinho de agosto de 2026/);
+  await imp.importar(p, arq('antecipado'));
+
+  const [f] = await cards.invoices(cardId, '2026-08-20');
+  assert.deepEqual([f.status, f.pagoCents, f.devidoCents], ['paga', 100000, 0]);
+  assert.equal(await saldo('nubank'), -100000);
+  const [r] = await cards.summaries('2026-08-20');
+  assert.equal(r.usadoCents, 0);
+  assert.equal(r.faturaAPagar, null);
+
+  // Excluir UM dos pagamentos recalcula a fatura: volta a dever 100.
+  const segundo = (await ledger.listByMonth('2026-08-01')).find((t) => t.kind === 'pagamento_fatura' && t.amountCents === 10000)!;
+  await ledger.deleteTransaction(segundo.id);
+  const [g] = await cards.invoices(cardId, '2026-08-20');
+  assert.deepEqual([g.status, g.pagoCents, g.devidoCents], ['fechada', 90000, 10000]);
+});
 test('reimportar: mesmo arquivo não duplica; extrato sobreposto também não', async () => {
   const { imp, contar } = await ambiente();
   const destino = { tipo: 'conta', contaId: 'nubank' } as const;
@@ -221,7 +253,7 @@ test('concilia com o que foi lançado à mão: não duplica, só marca', async (
   assert.equal(contar(`select count(*) n from transactions where id = ? and id_externo = 'conta:260:m1'`, manual), 1);
 });
 
-test('fatura: compras nas faturas certas, IOF herda, estorno abate, pagamento ignorado', async () => {
+test('fatura: compras na fatura do arquivo, IOF herda, estorno abate, pagamento ignorado', async () => {
   const { imp, cards, cat } = await ambiente();
   const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 25, diaVencimento: 5, contaPagamentoId: 'nubank' });
   const fatura = [
@@ -242,13 +274,12 @@ test('fatura: compras nas faturas certas, IOF herda, estorno abate, pagamento ig
 
   const r = await imp.importar(p, arq('fat'));
   assert.equal(r.importadas, 7);
+  // Um arquivo é UMA fatura do banco: tudo entra na fatura do app que
+  // contém a compra mais recente (11/09), não fatura por data de compra.
   const faturas = await cards.invoices(cardId, HOJE);
   assert.deepEqual(
     faturas.map((f) => [f.mesReferencia, f.totalCents]),
-    [
-      ['2026-08-01', 5000 + 175 - 1000 + 9990],
-      ['2026-09-01', 999 + 2345 * 2],
-    ],
+    [['2026-09-01', 5000 + 175 - 1000 + 9990 + 999 + 2345 * 2]],
   );
   const itens = await cards.invoiceItems(faturas[0].id!);
   assert.ok(itens.some((t) => t.descricao === 'Loja Ficticia (7/10)'));
@@ -425,4 +456,29 @@ test('parcela gravada com o id antigo (sem o número) não duplica', async () =>
   const r = await imp.importar(await imp.prever(lerExtrato(PARCELA_OUT), destino), arq('out'));
   assert.equal(r.importadas, 2, 'a 8/10 entra');
   assert.equal(contar(`select count(*) n from transactions where descricao like 'Loja Ficticia (%'`), 2);
+});
+
+test('fatura do banco: todas as linhas na mesma fatura do app, inclusive a parcela do dia do fechamento', async () => {
+  // Caso real: o Nubank lança a parcela em 13/09 na fatura que fecha em
+  // 13/10. Com fechamento no dia 13, a regra por data a punha na fatura de
+  // setembro — já paga —, e a prévia a ignorava.
+  const { imp, cards, contar } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 13, diaVencimento: 20, contaPagamentoId: 'nubank' });
+  await cards.addCardPurchase({ cardId, amountCents: 1000, competencia: '2026-09-01', parcelas: 1 });
+  const [setembro] = await cards.invoices(cardId, '2026-09-15');
+  await cards.payInvoice({ invoiceId: setembro.id!, accountId: 'nubank', data: '2026-09-15' });
+
+  const ofx = ofxFatura(
+    ['20260913', '-254.80', 'f-loja', 'Loja Ficticia - Parcela 8/10'],
+    ['20261011', '-9.99', 'f-sp', 'EBW*Spotify - NuPay'],
+  );
+  const p = await imp.prever(lerExtrato(ofx), { tipo: 'cartao', cartaoId: cardId });
+  assert.deepEqual(tipos(p), ['despesa', 'despesa']);
+  assert.equal((await imp.importar(p, arq('out'))).importadas, 2);
+
+  const faturas = await cards.invoices(cardId, '2026-10-20');
+  const outubro = faturas.find((f) => f.dataFechamento === '2026-10-13')!;
+  assert.equal(outubro.totalCents, 25480 + 999, 'as duas na fatura que fecha em 13/10');
+  assert.equal(faturas.find((f) => f.id === setembro.id)!.totalCents, 1000, 'a paga não mudou');
+  assert.equal(contar(`select count(*) n from transactions where competencia = '2026-09-13'`), 1, 'a data da compra continua a do banco');
 });

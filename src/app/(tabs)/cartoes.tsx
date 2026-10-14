@@ -74,7 +74,7 @@ export default function Cartoes() {
                 `Cartão ${cartao.nome}`,
                 `fatura de ${mesCurto(faturaAtual.mesReferencia)} ${faturaAtual.status}, ${formatCents(faturaAtual.totalCents)}`,
                 faturaAPagar
-                  ? `fatura de ${mesCurto(faturaAPagar.mesReferencia)} fechada, ${formatCents(faturaAPagar.totalCents)} a pagar até ${diaMes(faturaAPagar.dataVencimento)}`
+                  ? `fatura de ${mesCurto(faturaAPagar.mesReferencia)} fechada, ${formatCents(faturaAPagar.devidoCents)} a pagar até ${diaMes(faturaAPagar.dataVencimento)}`
                   : null,
                 `${formatCents(disponivelCents)} de limite livre`,
               ]
@@ -108,7 +108,7 @@ export default function Cartoes() {
                       {`⚠ Fatura de ${mesCurto(faturaAPagar.mesReferencia)} fechada`}
                     </Txt>
                     <Txt variant="sm">
-                      {`${formatCents(faturaAPagar.totalCents)} · vence ${diaMes(faturaAPagar.dataVencimento)}`}
+                      {`${formatCents(faturaAPagar.devidoCents)} · vence ${diaMes(faturaAPagar.dataVencimento)}`}
                     </Txt>
                   </View>
                 ) : null}

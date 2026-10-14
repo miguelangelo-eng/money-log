@@ -270,10 +270,14 @@ OFX de outros bancos também lê, com menos regras prontas. Entrada:
 **No app do Nubank:** conta → extrato → exportar (OFX ou CSV, escolher o
 período); cartão → fatura → exportar CSV. O arquivo vai para Downloads.
 
-**Ordem:** fatura primeiro, depois a conta. O "Pagamento de fatura" da conta
-só se liga a uma fatura **fechada** do app com o **mesmo total**; se não
-achar, a linha fica como "ignorar" e a fatura se paga pela tela do cartão.
-Pagar o total do app por um débito de outro valor faria o saldo mentir.
+**Ordem:** faturas primeiro (da mais antiga para a mais nova), depois a
+conta. Cada linha de uma fatura vai para a fatura do app que corresponde ao
+arquivo — não pela data da compra: o Nubank lança as parcelas no dia do
+fechamento anterior. O "Pagamento de fatura" da conta pode ter **qualquer
+valor** (o banco aceita pagar antes do fechamento e em partes): ele quita a
+fatura fechada mais antiga que ainda deve; se nenhuma deve, adianta a fatura
+em curso. A fatura fica "paga" quando os pagamentos cobrem o total e o
+último é depois do fechamento.
 
 **O que o app faz sozinho** (regras em `src/lib/extrato/regras.ts`; o resto
 em `src/data/importacao.ts`):
@@ -424,7 +428,7 @@ Cada uma tem o motivo completo no build-log ou no `schema.sql`.
 ## Armadilhas desta máquina
 
 - **`Set-Content -Encoding utf8` no PowerShell 5.1 grava BOM**, e BOM invalida
-  JSON (`Unexpected token '﻿'`). Para JSON, gravar sem BOM.
+  JSON (`Unexpected token` seguido do caractere invisível U+FEFF). Para JSON, gravar sem BOM.
 - **`npm` bloqueado pela política de execução** — usar `npm.cmd` / `npx.cmd`.
 - **`node` fora do PATH de sessão antiga** — reabrir o VS Code inteiro.
 - **Não há Postgres nem Docker.** O `schema.sql` é validado no PGlite

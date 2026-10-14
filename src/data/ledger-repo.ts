@@ -40,7 +40,7 @@ import {
   type Escopo,
 } from '@/lib/serie';
 
-import type { SyncDb } from './cards';
+import { recalcularStatusDaFatura, type SyncDb } from './cards';
 
 export interface LedgerDeps {
   db: SyncDb;
@@ -855,12 +855,9 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
 
         if (atual.kind === 'pagamento_fatura') {
           apagar([atual.id]);
-          if (atual.invoiceId) {
-            tx.update(invoices)
-              .set({ status: 'aberta', pagamentoTxId: null, updatedAt: ts })
-              .where(and(eq(invoices.id, atual.invoiceId), eq(invoices.pagamentoTxId, atual.id)))
-              .run();
-          }
+          // Pode ter sido um de vários pagamentos: a fatura é recalculada,
+          // não simplesmente reaberta.
+          if (atual.invoiceId) recalcularStatusDaFatura(tx, atual.invoiceId, ts);
           return { tipo: 'pagamento_desfeito' };
         }
 
@@ -899,6 +896,8 @@ export function createLedgerRepo({ db, newId, nowIso, userId: padrao, hoje }: Le
         }
 
         apagar(linhas.map((l) => l.id));
+        // Compra a menos pode deixar a fatura coberta pelo que já foi pago.
+        for (const f of faturaIds) recalcularStatusDaFatura(tx, f, ts);
         return atual.seriesId ? { tipo: 'serie', removidos: linhas.length } : { tipo: 'simples' };
       });
     },

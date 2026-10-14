@@ -47,7 +47,7 @@ export default function Fatura() {
   /** Índice inicial: a fechada a pagar, senão a atual, senão a última. */
   const indicePadrao = useMemo(() => {
     if (lista.length === 0 || !cartao.data) return 0;
-    const aPagar = lista.findIndex((f) => f.status === 'fechada' && f.totalCents > 0);
+    const aPagar = lista.findIndex((f) => f.status === 'fechada' && f.devidoCents > 0);
     if (aPagar >= 0) return aPagar;
     const atual = invoiceForPurchase(hoje, {
       diaFechamento: cartao.data.diaFechamento,
@@ -165,9 +165,14 @@ export default function Fatura() {
             <Txt variant="xs" color="textMuted" style={{ marginTop: space[1] }}>
               {`fecha ${diaMes(fatura.dataFechamento)} · vence ${diaMes(fatura.dataVencimento)}`}
             </Txt>
+            {fatura.pagoCents > 0 && fatura.status !== 'paga' ? (
+              <Txt variant="sm" style={{ marginTop: space[2] }}>
+                {`Já pago ${formatCents(fatura.pagoCents)} · falta ${formatCents(fatura.devidoCents)}`}
+              </Txt>
+            ) : null}
           </Card>
 
-          {fatura.status === 'fechada' && fatura.totalCents > 0 ? (
+          {fatura.status === 'fechada' && fatura.devidoCents > 0 ? (
             <>
               <SectionHeader>Pagar com</SectionHeader>
               <OptionList
@@ -177,7 +182,7 @@ export default function Fatura() {
                 onSelect={(c) => setContaId(c.id)}
               />
               <Button
-                label={`Pagar ${formatCents(fatura.totalCents)}`}
+                label={`Pagar ${formatCents(fatura.devidoCents)}`}
                 onPress={pagar}
                 loading={pagando}
                 disabled={pagando || !contaEfetiva}
@@ -188,6 +193,10 @@ export default function Fatura() {
                 dela, então o pagamento não conta de novo nos relatórios.
               </Txt>
             </>
+          ) : fatura.status === 'fechada' && fatura.totalCents > 0 ? (
+            <Txt variant="sm" color="success" style={styles.aviso}>
+              {'✓ Coberta pelos pagamentos'}
+            </Txt>
           ) : fatura.status === 'aberta' ? (
             <Txt variant="sm" color="textMuted" style={styles.aviso}>
               {`Esta fatura ainda recebe compras até ${diaMes(fatura.dataFechamento)}. ` +
