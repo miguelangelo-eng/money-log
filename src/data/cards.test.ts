@@ -152,6 +152,27 @@ test('duas compras no mesmo ciclo reutilizam a fatura, não duplicam', async () 
   assert.equal(contar('select count(*) as n from invoices where credit_card_id = ?', card), 1);
 });
 
+test('fatura excluída (pelo sync) é reaproveitada no mesmo mês, zerada', async () => {
+  // Cenário real: "começar do zero" marcou lançamentos e faturas como
+  // excluídos no servidor, e o pull trouxe isso ao aparelho. A compra seguinte
+  // do mesmo mês esbarrava na fatura excluída (UNIQUE cartão+mês) e falhava.
+  const { raw, repo, contar } = ambiente();
+  const card = await cartaoComum(repo);
+  await repo.addCardPurchase({ cardId: card, amountCents: 1000, competencia: '2026-10-05', parcelas: 1 });
+  const [antiga] = await repo.invoices(card, '2026-11-01');
+  await repo.payInvoice({ invoiceId: antiga.id!, accountId: 'conta-u1', data: '2026-11-01' });
+  raw.exec(`update transactions set deleted_at = '${TS}'; update invoices set deleted_at = '${TS}'`);
+
+  await repo.addCardPurchase({ cardId: card, amountCents: 2500, competencia: '2026-10-06', parcelas: 1 });
+  const faturas = await repo.invoices(card, '2026-10-10');
+  assert.equal(faturas.length, 1);
+  assert.equal(faturas[0].id, antiga.id, 'mesma linha, revivida');
+  assert.equal(faturas[0].totalCents, 2500, 'só a compra nova');
+  assert.equal(faturas[0].status, 'aberta', 'não herda o "paga" de antes');
+  assert.equal(contar('select count(*) as n from invoices where credit_card_id = ?', card), 1);
+  assert.equal(contar('select count(*) as n from invoices where pagamento_tx_id is not null'), 0);
+});
+
 test('compra em cartão de outro usuário é recusada', async () => {
   const { repo } = ambiente();
   const card = await cartaoComum(repo, U1);

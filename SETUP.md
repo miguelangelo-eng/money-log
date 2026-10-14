@@ -280,8 +280,9 @@ em `src/data/importacao.ts`):
 
 - **Não duplica:** cada linha guarda o id do banco (`id_externo`). Extratos
   com períodos sobrepostos, ou o OFX e o CSV do mesmo mês, não duplicam; o
-  mesmo arquivo duas vezes é recusado. Linha importada e **excluída** não
-  volta. O que foi lançado à mão (mesmo valor e sentido, até 3 dias de
+  mesmo arquivo de novo só traz o que falta. Linha importada e **excluída**
+  não volta — a não ser que a importação inteira tenha sido excluída
+  (importação desfeita: o arquivo entra de novo). O que foi lançado à mão (mesmo valor e sentido, até 3 dias de
   diferença) é **conciliado**: ganha o id do banco em vez de virar outro
   lançamento.
 - **Pix no Crédito:** o par entrada/saída na conta é ignorado; o gasto vem na

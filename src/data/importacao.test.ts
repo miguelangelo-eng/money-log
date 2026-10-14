@@ -127,13 +127,18 @@ test('pagamento de valor diferente da fatura do app não paga a fatura', async (
   assert.equal((await cards.invoices(cardId, HOJE))[0].status, 'fechada');
 });
 
-test('reimportar: mesmo arquivo é recusado; extrato sobreposto não duplica', async () => {
+test('reimportar: mesmo arquivo não duplica; extrato sobreposto também não', async () => {
   const { imp, contar } = await ambiente();
   const destino = { tipo: 'conta', contaId: 'nubank' } as const;
   await imp.importar(await imp.prever(lerExtrato(SETEMBRO), destino), arq('sha-1'));
   const antes = contar('select count(*) n from transactions');
 
-  await assert.rejects(imp.importar(await imp.prever(lerExtrato(SETEMBRO), destino), arq('sha-1')), /já foi importado/);
+  // O mesmo arquivo de novo: nada entra (o ignorado segue ignorado).
+  const mesmo = await imp.prever(lerExtrato(SETEMBRO), destino);
+  assert.ok(mesmo.linhas.every((l) => l.acao.tipo === 'ignorar'));
+  const r = await imp.importar(mesmo, arq('sha-1'));
+  assert.equal(r.importadas, 0);
+  assert.equal(contar('select count(*) n from transactions'), antes);
 
   // Outro arquivo com as mesmas transações (OFX do mesmo mês, por exemplo):
   // só o que foi ignorado reaparece (o Pix no Crédito e o pagamento, que não
@@ -148,15 +153,38 @@ test('reimportar: mesmo arquivo é recusado; extrato sobreposto não duplica', a
 test('lançamento importado e excluído não volta na próxima importação', async () => {
   const { imp, ledger, contar } = await ambiente();
   const destino = { tipo: 'conta', contaId: 'nubank' } as const;
-  const csv = csvConta(`17/09/2026,-12.34,fff,Compra no débito - DESPENSA DO BAIRRO`);
+  const csv = csvConta(
+    `17/09/2026,-12.34,fff,Compra no débito - DESPENSA DO BAIRRO`,
+    `18/09/2026,-5.00,ggg,Compra no débito - PADARIA`,
+  );
   await imp.importar(await imp.prever(lerExtrato(csv), destino), arq('a'));
-  const id = (await ledger.listByMonth('2026-09-01'))[0].id;
-  await ledger.deleteTransaction(id);
+  const despensa = (await ledger.listByMonth('2026-09-01')).find((t) => t.amountCents === 1234)!;
+  await ledger.deleteTransaction(despensa.id);
 
+  // O lote segue vivo (a padaria): a exclusão foi de propósito.
   const p = await imp.prever(lerExtrato(csv + '\n'), destino);
   assert.equal(p.linhas.length, 0);
-  assert.equal(p.jaImportadas, 1);
-  assert.equal(contar('select count(*) n from transactions where deleted_at is null'), 0);
+  assert.equal(p.jaImportadas, 2);
+  assert.equal((await imp.importar(await imp.prever(lerExtrato(csv), destino), arq('a'))).importadas, 0);
+  assert.equal(contar('select count(*) n from transactions where deleted_at is null'), 1);
+});
+
+test('tudo excluído = importação desfeita: o mesmo arquivo entra de novo', async () => {
+  // Caso real: "começar do zero" excluiu tudo no servidor; na reimportação
+  // da mesma fatura as linhas sumiam como "já importadas".
+  const { raw, imp, contar } = await ambiente();
+  const destino = { tipo: 'conta', contaId: 'nubank' } as const;
+  await imp.importar(await imp.prever(lerExtrato(SETEMBRO), destino), arq('set'));
+  const n = contar('select count(*) n from transactions where deleted_at is null');
+  raw.exec(`update transactions set deleted_at = '${TS}'`);
+
+  const p = await imp.prever(lerExtrato(SETEMBRO), destino);
+  assert.equal(p.jaImportadas, 0);
+  const r = await imp.importar(p, arq('set'));
+  assert.equal(r.importadas, n);
+  assert.equal(contar('select count(*) n from transactions where deleted_at is null'), n);
+  assert.equal(contar(`select count(*) n from import_batches where sha256 like 'set:%'`), 1, 'o repetido guarda o hash com o id do lote');
+  assert.equal(contar('select count(*) n from import_batches'), 2);
 });
 
 test('aprende: Pix do próprio nome vira transferência; categoria trocada é lembrada', async () => {
@@ -288,4 +316,73 @@ test('extrato no destino errado é recusado', async () => {
     imp.prever(lerExtrato('date,title,amount\n2026-09-01,X,"1,00"'), { tipo: 'conta', contaId: 'nubank' }),
     /fatura de cartão/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Fatura em OFX (o erro real: IOF com o mesmo FITID da compra)
+// ---------------------------------------------------------------------------
+
+const ofxFatura = (...trns: Array<[string, string, string, string]>) =>
+  `<OFX><FI><ORG>NU PAGAMENTOS S.A.</ORG><FID>260</FID></FI><CCSTMTRS><BANKTRANLIST>${trns
+    .map(
+      ([data, valor, fitid, memo]) =>
+        `<STMTTRN><DTPOSTED>${data}000000[-3:BRT]</DTPOSTED><TRNAMT>${valor}</TRNAMT><FITID>${fitid}</FITID><MEMO>${memo}</MEMO></STMTTRN>`,
+    )
+    .join('\n')}</BANKTRANLIST></CCSTMTRS></OFX>`;
+
+const OFX_SET = ofxFatura(
+  ['20260917', '-1.75', 'f-int', 'IOF de compra internacional'],
+  ['20260917', '-50.00', 'f-int', 'Netflix.Com'],
+  ['20260910', '-23.45', 'f-uber', 'Dl*Uberrides'],
+  ['20260905', '1234.56', 'f-pag', 'Pagamento recebido'],
+);
+
+test('fatura OFX: o IOF (antes da compra, mesmo FITID) herda a categoria e o lote grava', async () => {
+  const { imp, cards, cat, contar } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 25, diaVencimento: 5, contaPagamentoId: 'nubank' });
+  const p = await imp.prever(lerExtrato(OFX_SET), { tipo: 'cartao', cartaoId: cardId });
+  assert.deepEqual(tipos(p), ['despesa', 'despesa', 'despesa', 'ignorar']);
+  assert.deepEqual(p.linhas[0].acao, { tipo: 'despesa', categoryId: await cat('Assinaturas') });
+
+  const r = await imp.importar(p, arq('ofx-set'));
+  assert.equal(r.importadas, 3);
+  assert.equal(contar(`select count(*) n from transactions where id_externo = 'cartao:260:f-int:iof'`), 1);
+});
+
+test('mesma fatura em CSV e depois em OFX: concilia, não duplica', async () => {
+  const { imp, cards, contar } = await ambiente();
+  const cardId = await cards.addCard({ nome: 'Roxinho', limiteCents: 500000, diaFechamento: 25, diaVencimento: 5, contaPagamentoId: 'nubank' });
+  const destino = { tipo: 'cartao', cartaoId: cardId } as const;
+  const csv = [
+    'date,title,amount',
+    '2026-09-17,Netflix.Com,"50,00"',
+    '2026-09-17,"IOF de ""Netflix.Com""","1,75"',
+    '2026-09-10,Dl*Uberrides,"23,45"',
+    '2026-09-05,Pagamento recebido,"- 1.234,56"',
+  ].join('\n');
+  await imp.importar(await imp.prever(lerExtrato(csv), destino), arq('csv-set'));
+  assert.equal(contar('select count(*) n from transactions'), 3);
+
+  const p = await imp.prever(lerExtrato(OFX_SET), destino);
+  assert.deepEqual(tipos(p), ['conciliar', 'conciliar', 'conciliar', 'ignorar']);
+  const r = await imp.importar(p, arq('ofx-set'));
+  assert.equal(r.conciliadas, 3);
+  assert.equal(r.importadas, 0);
+  assert.equal(contar('select count(*) n from transactions'), 3);
+});
+
+test('importação parcial: o mesmo arquivo de novo completa só o que falta', async () => {
+  // Caso real: a primeira tentativa só gravou o IOF; o resto estava preso.
+  const { imp, contar } = await ambiente();
+  const destino = { tipo: 'conta', contaId: 'nubank' } as const;
+  let p = await imp.prever(lerExtrato(SETEMBRO), destino);
+  p = { ...p, linhas: p.linhas.map((l, i) => (i === 5 ? l : { ...l, acao: { tipo: 'ignorar' } as const })) };
+  assert.equal((await imp.importar(p, arq('mesmo'))).importadas, 1);
+
+  const q = await imp.prever(lerExtrato(SETEMBRO), destino);
+  assert.equal(q.jaImportadas, 1);
+  const r = await imp.importar(q, arq('mesmo'));
+  // 5 linhas valem (Pix no Crédito e o pagamento sem fatura seguem ignorados): 1 já estava, entram 4.
+  assert.equal(r.importadas, 4);
+  assert.equal(contar('select count(*) n from transactions'), 5);
 });

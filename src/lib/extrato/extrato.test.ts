@@ -201,7 +201,7 @@ test('regras da fatura: pagamento ignorado, IOF herda da compra', () => {
   const linhas = lerExtrato(FATURA_CSV).linhas;
   const r = linhas.map((l) => regraFixa(l, 'cartao', new Set()));
   assert.equal(r[4]?.tipo, 'ignorar');
-  assert.deepEqual(r[8], { tipo: 'herdar', de: 'Assinatura Exterior' });
+  assert.deepEqual(r[8], { tipo: 'herdar', texto: 'Assinatura Exterior' });
   assert.equal(r[0], null);
 });
 
@@ -226,4 +226,51 @@ test('palpite de categoria pela palavra', () => {
     ['Barbearia do Zé', null],
   ];
   for (const [desc, cat] of casos) assert.equal(categoriaPorPalavra(desc), cat, desc);
+});
+
+// ---------------------------------------------------------------------------
+// Fatura em OFX
+// ---------------------------------------------------------------------------
+
+/** Como o Nubank exporta: o IOF vem ANTES da compra e com o MESMO FITID. */
+const FATURA_OFX = `OFXHEADER:100
+DATA:OFXSGML
+ENCODING:USASCII
+CHARSET:1252
+<OFX><SIGNONMSGSRSV1><SONRS><FI><ORG>NU PAGAMENTOS S.A.</ORG><FID>260</FID></FI></SONRS></SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1><CCSTMTTRNRS><CCSTMTRS><CCACCTFROM><ACCTID>cartao-ficticio</ACCTID></CCACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260917000000[-3:BRT]</DTPOSTED><TRNAMT>-1.75</TRNAMT><FITID>f-int</FITID><MEMO>IOF de compra internacional</MEMO></STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260917000000[-3:BRT]</DTPOSTED><TRNAMT>-50.00</TRNAMT><FITID>f-int</FITID><MEMO>Netflix.Com</MEMO></STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260910000000[-3:BRT]</DTPOSTED><TRNAMT>-23.45</TRNAMT><FITID>f-uber</FITID><MEMO>Dl*Uberrides</MEMO></STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT</TRNTYPE><DTPOSTED>20260905000000[-3:BRT]</DTPOSTED><TRNAMT>1234.56</TRNAMT><FITID>f-pag</FITID><MEMO>Pagamento recebido</MEMO></STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>-75.20</BALAMT><DTASOF>20261013000000[-3:BRT]</DTASOF></LEDGERBAL>
+</CCSTMTRS></CCSTMTTRNRS></CREDITCARDMSGSRSV1></OFX>`;
+
+test('fatura OFX: IOF com o FITID da compra vira ":iof" e aponta para a compra', () => {
+  const e = lerExtrato(FATURA_OFX);
+  assert.equal(e.origem, 'cartao');
+  assert.equal(e.nome, 'Cartão Nubank (OFX)');
+  const [iof, compra, uber, pagamento] = e.linhas;
+  assert.equal(iof.idExterno, 'cartao:260:f-int:iof');
+  assert.equal(compra.idExterno, 'cartao:260:f-int', 'a compra fica com o id limpo');
+  assert.equal(new Set(e.linhas.map((l) => l.idExterno)).size, e.linhas.length);
+  assert.equal(compra.valorCents, -5000);
+  assert.equal(uber.descricao, 'Uberrides');
+  assert.equal(pagamento.valorCents, 123456);
+
+  assert.deepEqual(regraFixa(iof, 'cartao', new Set()), { tipo: 'herdar', id: 'cartao:260:f-int' });
+  assert.equal(regraFixa(pagamento, 'cartao', new Set())?.tipo, 'ignorar');
+});
+
+test('qualquer outro id repetido no arquivo ganha sufixo numerado', () => {
+  const ofx = `<OFX><BANKID>0341
+<STMTTRN><DTPOSTED>20261001<TRNAMT>-1.00<FITID>x<MEMO>A</STMTTRN>
+<STMTTRN><DTPOSTED>20261001<TRNAMT>-2.00<FITID>x<MEMO>B</STMTTRN>
+<STMTTRN><DTPOSTED>20261001<TRNAMT>-3.00<FITID>x<MEMO>C</STMTTRN></OFX>`;
+  assert.deepEqual(
+    lerExtrato(ofx).linhas.map((l) => l.idExterno),
+    ['conta:341:x', 'conta:341:x:2', 'conta:341:x:3'],
+  );
 });

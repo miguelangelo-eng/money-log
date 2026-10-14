@@ -637,3 +637,42 @@ da pessoa, então tirar só o filtro não muda o resultado (duas camadas).
 
 **Não visto no aparelho.** Exige APK 1.1.0 (expo-document-picker e
 expo-file-system são nativos) e o `supabase/importacao.sql` no projeto.
+
+## 2026-10-14 — Importação: quatro bugs achados com a fatura real (Expo Go)
+
+Diagnosticado com o Metro e log temporário no Expo Go (já removido).
+
+1. **IOF com o FITID da compra.** O OFX da fatura do Nubank dá ao "IOF de
+   compra internacional" o MESMO FITID da compra; duas linhas com o mesmo
+   `id_externo` no lote = UNIQUE no banco, e o lote inteiro caía. Era o
+   "uma compra apresentou erro" do APK. Agora `lerExtrato` garante ids
+   únicos (IOF vira `<fitid>:iof`; outra repetição, `:2`, `:3`) e o IOF herda
+   a categoria da compra pelo id — resolvido depois do laço, porque no OFX o
+   IOF vem antes da compra.
+2. **Leitura do arquivo no Expo Go:** `Missing 'READ' permission`. A cópia
+   do seletor ia para uma pasta fora do escopo do expo-file-system. Agora
+   lê o `content://` original (`copyToCacheDirectory: false`).
+3. **Fatura excluída bloqueava o mês.** "Começar do zero" (soft delete no
+   servidor) deixou faturas excluídas no aparelho; o índice cartão+mês do
+   SQLite não é parcial (o do Postgres é), e a compra seguinte falhava. A
+   fatura excluída do mês agora é reaberta, zerada.
+4. **Reimportar depois de excluir tudo.** "Este arquivo já foi importado" e
+   linhas sumindo como "já importadas". Regra nova: lote com TUDO excluído é
+   importação desfeita — o arquivo entra de novo e as linhas excluídas largam
+   o id. Exclusão avulsa num lote vivo continua não voltando. Conciliação
+   passa a gravar o lote também.
+5. **O mesmo arquivo de novo deixou de ser erro.** Uma importação parcial
+   (só o IOF tinha entrado) deixava o lote vivo, e a mesma fatura era
+   recusada inteira. Com o id por linha, o bloqueio por arquivo ficou
+   redundante: agora entra só o que falta, e o hash repetido é gravado com o
+   id do lote (continua único por usuário).
+
+Também: CSV e OFX da mesma fatura concilia (impressão digital × FITID); o escape do BOM
+(U+FEFF), a faixa de acentos e o limite de palavra de uma regex tinham virado caracteres literais/de controle
+no código-fonte (conversão das ferramentas) — trocados por código numérico.
+
+**Pendência registrada:** um aparelho com dados velhos na fila de envio
+desfaz exclusões feitas no servidor (o push é upsert sem olhar o que mudou
+lá). Aconteceu com o Expo Go antigo; resolvido com "Sair e apagar".
+
+Testes: 194. Mutações nas correções: todas mortas.

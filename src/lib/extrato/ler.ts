@@ -25,6 +25,9 @@ import { parseAmount, type Cents } from '../money';
 import { lerCsv } from './csv';
 import { lerOfx } from './ofx';
 
+/** Acentos combinantes (U+0300–U+036F), que o NFD separa da letra. */
+const ACENTOS = new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`, 'g');
+
 export type Origem = 'conta' | 'cartao';
 
 export interface LinhaExtrato {
@@ -112,7 +115,7 @@ function valor(s: string): Cents {
 }
 
 const normCabecalho = (cols: string[]) =>
-  cols.map((c) => c.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')).join(',');
+  cols.map((c) => c.trim().toLowerCase().normalize('NFD').replace(ACENTOS, '')).join(',');
 
 function contaNubankCsv(linhas: string[][]): Extrato {
   const vistos = new Map<string, number>();
@@ -193,15 +196,37 @@ function ofx(texto: string): Extrato {
   };
 }
 
+/** Nenhum id repetido dentro do arquivo — o banco do app recusaria a segunda
+ *  linha e a importação inteira cairia.
+ *
+ *  Caso real: o OFX da fatura do Nubank dá ao "IOF de compra internacional"
+ *  o MESMO FITID da compra. O IOF ganha `:iof` (estável, não depende da
+ *  ordem no arquivo) e o id da compra fica limpo — é por ele que o IOF acha
+ *  a compra (regras.ts). Qualquer outra repetição ganha `:2`, `:3`... */
+function idsUnicos(e: Extrato): Extrato {
+  const total = new Map<string, number>();
+  for (const l of e.linhas) total.set(l.idExterno, (total.get(l.idExterno) ?? 0) + 1);
+
+  const vistos = new Map<string, number>();
+  const linhas = e.linhas.map((l) => {
+    let id = l.idExterno;
+    if (total.get(id)! > 1 && /^iof\b/i.test(l.original)) id = `${id}:iof`;
+    const n = (vistos.get(id) ?? 0) + 1;
+    vistos.set(id, n);
+    return n === 1 && id === l.idExterno ? l : { ...l, idExterno: n === 1 ? id : `${id}:${n}` };
+  });
+  return { ...e, linhas };
+}
+
 /** Lê o arquivo e diz o que ele é. Erro com mensagem para a tela quando o
  *  formato não é reconhecido. */
 export function lerExtrato(texto: string): Extrato {
-  if (/<OFX>/i.test(texto) || /^\s*OFXHEADER/i.test(texto)) return ofx(texto);
+  if (/<OFX>/i.test(texto) || /^\s*OFXHEADER/i.test(texto)) return idsUnicos(ofx(texto));
 
   const linhas = lerCsv(texto);
   const cab = linhas.length > 0 ? normCabecalho(linhas[0]) : '';
-  if (cab === 'data,valor,identificador,descricao') return contaNubankCsv(linhas);
-  if (cab === 'date,title,amount') return faturaNubankCsv(linhas);
+  if (cab === 'data,valor,identificador,descricao') return idsUnicos(contaNubankCsv(linhas));
+  if (cab === 'date,title,amount') return idsUnicos(faturaNubankCsv(linhas));
 
   throw new Error(
     'Formato não reconhecido. Use o OFX ou o CSV do extrato da conta, ou o CSV da fatura do cartão.',

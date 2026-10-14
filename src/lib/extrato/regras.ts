@@ -18,11 +18,15 @@ export type RegraFixa =
   /** Transferência entre esta conta e a de investimentos. O sentido vem do
    *  sinal: saída = aplicação, entrada = resgate. */
   | { tipo: 'investimento' }
-  /** IOF de compra internacional: mesma categoria da compra. */
-  | { tipo: 'herdar'; de: string };
+  /** IOF de compra internacional: mesma categoria da compra, achada pelo
+   *  texto (CSV: `IOF de "Loja"`) ou pelo id (OFX: mesmo FITID). */
+  | { tipo: 'herdar'; texto?: string; id?: string };
+
+/** Acentos combinantes (U+0300–U+036F), que o NFD separa da letra. */
+const ACENTOS = new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`, 'g');
 
 export const normalizar = (s: string) =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  s.normalize('NFD').replace(ACENTOS, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const PIX_NO_CREDITO = /^valor adicionado na conta por cartao de credito/;
 
@@ -49,7 +53,9 @@ export function regraFixa(l: LinhaExtrato, origem: Origem, pixNoCredito: Set<str
       return { tipo: 'ignorar', motivo: 'Pagamento da fatura: entra pelo extrato da conta.' };
     }
     const iof = /^iof de "(.+)"$/i.exec(l.original.trim());
-    if (iof) return { tipo: 'herdar', de: iof[1] };
+    if (iof) return { tipo: 'herdar', texto: iof[1] };
+    // OFX: o IOF tem o FITID da compra; ler.ts o separou com ":iof".
+    if (/^iof\b/.test(t) && l.idExterno.endsWith(':iof')) return { tipo: 'herdar', id: l.idExterno.slice(0, -4) };
     return null;
   }
 

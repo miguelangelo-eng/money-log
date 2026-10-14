@@ -610,7 +610,9 @@ grant execute on function tx_valida_categoria() to authenticated;
 --     rejeitado pelo banco. É a defesa contra o erro mais comum do import.
 --     Mas o hash do arquivo não basta: extratos com períodos sobrepostos têm
 --     hashes diferentes e as mesmas transações. A defesa por LINHA é
---     transactions.id_externo, único por usuário (excluídas incluídas).
+--     transactions.id_externo, único por usuário (excluídas incluídas). Com
+--     ela, o app aceita o mesmo arquivo de novo (só entra o que falta) e
+--     grava o hash repetido com o id do lote.
 --
 -- [M] instituicao é texto livre. Nome de banco em texto é descritivo e
 --     aceitável; empacotar o logotipo do banco no app, não — é marca de

@@ -22,7 +22,7 @@
  *  7. despesa ou receita sem categoria.
  */
 
-import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 
 import {
   accounts,
@@ -116,6 +116,10 @@ const chave = (descricao: string) => normalizar(descricao.replace(/\s\(\d+\/\d+\
 /** Prefixo do id: "conta:260:" — de que extrato a linha veio. */
 const origemDoId = (id: string) => id.split(':').slice(0, 2).join(':');
 
+/** Id por impressão digital (a fatura em CSV não tem id) em vez do FITID do
+ *  OFX. A mesma compra tem um id em cada formato. */
+const porImpressao = (id: string) => id.includes('|');
+
 /** O texto que o lançamento recebe. Parcela fica visível: "Loja (7/10)". */
 export const descricaoDoLancamento = (l: LinhaExtrato) =>
   l.parcela ? `${l.descricao} (${l.parcela.n}/${l.parcela.de})` : l.descricao;
@@ -131,15 +135,30 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
     return c;
   }
 
+  /** Lotes com ao menos um lançamento não excluído. Lote com TUDO excluído
+   *  é importação desfeita — o caso real foi "começar do zero": excluir tudo
+   *  e importar de novo o mesmo arquivo. */
+  function lotesVivos(q: Q, userId: string): Set<string> {
+    const rows = q
+      .select({ id: transactions.importBatchId })
+      .from(transactions)
+      .where(and(eq(transactions.userId, userId), isNull(transactions.deletedAt), isNotNull(transactions.importBatchId)))
+      .all();
+    return new Set(rows.map((r) => r.id!));
+  }
+
+  /** Linhas do banco que já estão no app. Excluída conta quando o lote dela
+   *  segue vivo: apagar UM lançamento importado é de propósito, e ele não
+   *  volta. Excluída de lote desfeito (ou sem lote) não conta. */
   function idsExistentes(q: Q, ids: string[], userId: string): Set<string> {
     if (ids.length === 0) return new Set();
-    // Excluídas contam: o que foi apagado de propósito não volta.
+    const vivos = lotesVivos(q, userId);
     const rows = q
-      .select({ id: transactions.idExterno })
+      .select({ id: transactions.idExterno, excluida: transactions.deletedAt, lote: transactions.importBatchId })
       .from(transactions)
       .where(and(eq(transactions.userId, userId), inArray(transactions.idExterno, ids)))
       .all();
-    return new Set(rows.map((r) => r.id!));
+    return new Set(rows.filter((r) => !r.excluida || (r.lote && vivos.has(r.lote))).map((r) => r.id!));
   }
 
   function saldoNaData(q: Q, contaId: string, data: CivilDate, userId: string): Cents {
@@ -249,9 +268,14 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
         let melhor: Transaction | null = null;
         for (const t of candidatos) {
           if (usados.has(t.id)) continue;
-          // Já veio de OUTRO extrato: só uma transferência pode ter as duas
-          // pontas importadas (a saída de um banco é a entrada do outro).
-          if (t.idExterno && !(t.kind === 'transferencia' && origemDoId(t.idExterno) !== origemDoId(l.idExterno))) {
+          // Já veio de outro extrato. Só casa em dois casos: transferência
+          // (a saída de um banco é a entrada do outro) e a mesma fatura em
+          // outro formato (CSV tem impressão digital, OFX tem FITID).
+          if (
+            t.idExterno &&
+            !(t.kind === 'transferencia' && origemDoId(t.idExterno) !== origemDoId(l.idExterno)) &&
+            !(origemDoId(t.idExterno) === origemDoId(l.idExterno) && porImpressao(t.idExterno) !== porImpressao(l.idExterno))
+          ) {
             continue;
           }
           const tolerancia = l.parcela && t.parcelaN === l.parcela.n && t.parcelaDe === l.parcela.de ? 2 : 0;
@@ -322,6 +346,7 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
       }
 
       const linhas: LinhaPrevia[] = [];
+      const iofs: Array<{ i: number; texto?: string; id?: string }> = [];
       for (const l of novas) {
         const saida = l.valorCents < 0;
         const regra = regraFixa(l, extrato.origem, pix);
@@ -366,6 +391,15 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
           continue;
         }
 
+        // IOF: a categoria vem da compra, resolvida no fim — no OFX o IOF
+        // aparece ANTES da compra. Antes do histórico, que guardaria a
+        // categoria da compra do mês passado.
+        if (regra?.tipo === 'herdar' && saida) {
+          iofs.push({ i: linhas.length, texto: regra.texto, id: regra.id });
+          sugerir({ tipo: 'despesa', categoryId: null }, 'IOF: mesma categoria da compra.');
+          continue;
+        }
+
         const h = historico.get(chave(l.descricao));
         if (h && destino.tipo === 'conta' && h.kind === 'transferencia') {
           const outra = h.accountId === destino.contaId ? h.transferAccountId : h.accountId;
@@ -380,15 +414,17 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
           continue;
         }
 
-        if (regra?.tipo === 'herdar') {
-          const compra = linhas.find((x) => x.linha.original === regra.de);
-          const cat = compra && compra.acao.tipo === 'despesa' ? compra.acao.categoryId : null;
-          sugerir({ tipo: 'despesa', categoryId: cat }, 'IOF: mesma categoria da compra.');
-          continue;
-        }
-
         const palpite = saida ? categoriaPorNome(categoriaPorPalavra(l.descricao)) : null;
         sugerir({ tipo, categoryId: palpite }, null);
+      }
+
+      for (const iof of iofs) {
+        const compra = linhas.find(
+          (x) => (iof.id && x.linha.idExterno === iof.id) || (iof.texto && x.linha.original === iof.texto),
+        );
+        if (compra?.acao.tipo === 'despesa') {
+          linhas[iof.i] = { ...linhas[iof.i], acao: { tipo: 'despesa', categoryId: compra.acao.categoryId } };
+        }
       }
 
       return { extrato, destino, linhas, jaImportadas: extrato.linhas.length - novas.length };
@@ -399,25 +435,41 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
       const { extrato, destino } = previa;
 
       const r = db.transaction((tx) => {
+        const ts = nowIso();
+        // O mesmo arquivo de novo não é erro: linha a linha, o que já está no
+        // app fica de fora (id_externo), e só entra o que falta — por
+        // exemplo, depois de uma importação parcial. O hash continua único
+        // por usuário: a repetição o grava com o id do lote.
+        const batchId = newId();
         const repetido = tx
-          .select({ em: importBatches.createdAt })
+          .select({ id: importBatches.id })
           .from(importBatches)
           .where(and(eq(importBatches.userId, userId), eq(importBatches.sha256, arquivo.sha256)))
           .get();
-        if (repetido) {
-          throw new Error(`Este arquivo já foi importado em ${dataCurta(repetido.em.slice(0, 10))}.`);
-        }
 
         const existentes = idsExistentes(tx, previa.linhas.map((l) => l.linha.idExterno), userId);
-        const ts = nowIso();
-        const batchId = newId();
+        // Excluídas que NÃO bloqueiam (lote desfeito) largam o id do banco:
+        // ele é único por usuário, inclusive em linha excluída.
+        const livres = previa.linhas.map((l) => l.linha.idExterno).filter((id) => !existentes.has(id));
+        if (livres.length > 0) {
+          tx.update(transactions)
+            .set({ idExterno: null, updatedAt: ts })
+            .where(
+              and(
+                eq(transactions.userId, userId),
+                isNotNull(transactions.deletedAt),
+                inArray(transactions.idExterno, livres),
+              ),
+            )
+            .run();
+        }
         tx.insert(importBatches)
           .values({
             id: batchId,
             userId,
             arquivoNome: arquivo.nome,
             formato: extrato.formato,
-            sha256: arquivo.sha256,
+            sha256: repetido ? `${arquivo.sha256}:${batchId}` : arquivo.sha256,
             accountId: destino.tipo === 'conta' ? destino.contaId : null,
             creditCardId: destino.tipo === 'cartao' ? destino.cartaoId : null,
             totalLinhas: extrato.linhas.length,
@@ -470,7 +522,7 @@ export function createImportacaoRepo({ db, newId, nowIso, userId: padrao, ledger
                 // Transferência com a outra ponta já importada fica como está:
                 // um lançamento guarda um id de banco só.
                 tx.update(transactions)
-                  .set({ idExterno: l.idExterno, updatedAt: ts })
+                  .set({ idExterno: l.idExterno, importBatchId: batchId, updatedAt: ts })
                   .where(
                     and(
                       eq(transactions.id, acao.transacaoId),

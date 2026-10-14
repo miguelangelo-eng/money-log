@@ -220,6 +220,31 @@ export function createCardsRepo({ db, newId, nowIso, userId: padrao }: CardsDeps
     const existente = achar();
     if (existente) return existente;
 
+    // Fatura do mês excluída (o caso real: "começar do zero" no servidor,
+    // trazido pelo pull). Revive a MESMA linha, zerada: criar outra esbarraria
+    // na regra uma-por-mês, e o status/pagamento antigos não valem mais.
+    const excluida = q
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.creditCardId, card.id), eq(invoices.mesReferencia, ref.mesReferencia)))
+      .get();
+    if (excluida) {
+      q.update(invoices)
+        .set({
+          deletedAt: null,
+          status: 'aberta',
+          pagamentoTxId: null,
+          dataFechamento: ref.dataFechamento,
+          dataVencimento: ref.dataVencimento,
+          updatedAt: ts,
+        })
+        .where(eq(invoices.id, excluida.id))
+        .run();
+      const revivida = achar();
+      if (!revivida) throw new Error('Falha ao reabrir a fatura.');
+      return revivida;
+    }
+
     q.insert(invoices)
       .values({
         id: newId(),

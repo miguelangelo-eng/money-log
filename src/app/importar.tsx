@@ -95,7 +95,10 @@ export default function Importar() {
 
   async function escolherArquivo() {
     setErro(null);
-    const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+    // Sem cópia para o cache: lê o arquivo pelo content:// que o Android
+    // entrega. A cópia caía numa pasta que o expo-file-system não deixa ler
+    // ("Missing 'READ' permission", visto no Expo Go); content:// passa.
+    const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false });
     if (r.canceled) return;
     const a = r.assets[0];
     setOcupado(true);
