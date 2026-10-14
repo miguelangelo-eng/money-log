@@ -13,7 +13,9 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 
 import { createCardsRepo } from '@/data/cards';
+import { createImportacaoRepo } from '@/data/importacao';
 import { createLedgerRepo } from '@/data/ledger-repo';
+import { lerExtrato } from '@/lib/extrato/ler';
 import { bancoDeTeste, TS } from '@/test-support/sqlite';
 import {
   comoUsuario,
@@ -377,4 +379,51 @@ test('instante do Postgres vira o ISO que o app grava', () => {
   assert.equal(instanteParaIso('2026-10-11T12:00:00.123456+00:00'), '2026-10-11T12:00:00.123Z');
   assert.equal(instanteParaIso('2026-10-11 09:00:00-03'), '2026-10-11T12:00:00.000Z');
   assert.equal(instanteParaIso('2026-10-11T12:00:00Z'), '2026-10-11T12:00:00.000Z');
+});
+
+// ------------------------------------------------------------ importação
+
+test('reimportar depois de excluir tudo sobe sem esbarrar no id_externo único do servidor', async () => {
+  // Caso real: o Expo Go reimportou a fatura depois de "começar do zero". Na
+  // mesma transação, as linhas antigas (excluídas) largaram o id do banco e
+  // as novas o pegaram. O push mandava as linhas na ordem do id da linha:
+  // a nova chegava antes da antiga largar o id, o índice único do Postgres
+  // recusava, e o envio inteiro falhava — toda vez.
+  const { pg, ana } = await servidor();
+  const { db, contar } = bancoDeTeste();
+  // Ids controlados: a 1ª importação gera "f…", a 2ª gera "1…", que vêm
+  // ANTES na ordem do SQLite. É a ordem que quebrava.
+  let prefixo = 'f';
+  let n = 0;
+  const newId = () => `${prefixo}0000000-0000-4000-8000-${String(++n).padStart(12, '0')}`;
+  const deps = { db, newId, nowIso: () => TS, userId: LOCAL };
+  const ledger = createLedgerRepo({ ...deps, hoje: () => HOJE });
+  const cards = createCardsRepo(deps);
+  const imp = createImportacaoRepo({ ...deps, ledger, cards });
+  const sync = createSync({ db, transporte: transportePg(pg, ana), localUserId: LOCAL, nowIso: () => TS });
+  await sync.prepararAparelho(ana);
+  await ledger.ensureSeed();
+  const conta = (await ledger.listAccounts())[0].id;
+
+  const csv = [
+    'Data,Valor,Identificador,Descrição',
+    ...Array.from({ length: 5 }, (_, i) => `0${i + 1}/10/2026,-${i + 1}.00,linha-${i},Compra no débito - LOJA ${i}`),
+  ].join('\n');
+  const destino = { tipo: 'conta', contaId: conta } as const;
+  await imp.importar(await imp.prever(lerExtrato(csv), destino), { nome: 'a.csv', sha256: 'h' });
+  await sync.sincronizar(ana);
+
+  db.run(sql`update transactions set deleted_at = ${TS}, updated_at = ${TS}`); // "começar do zero"
+  await sync.sincronizar(ana);
+
+  prefixo = '1';
+  const r = await imp.importar(await imp.prever(lerExtrato(csv), destino), { nome: 'a.csv', sha256: 'h' });
+  assert.equal(r.importadas, 5);
+  await sync.sincronizar(ana);
+
+  assert.equal(contar('select count(*) as n from outbox'), 0, 'nada preso na fila');
+  const vivos = await comoUsuario(pg, ana, (q) =>
+    q.query<{ n: number }>(`select count(*)::int as n from transactions where deleted_at is null and id_externo is not null`),
+  );
+  assert.equal(vivos.rows[0].n, 5);
 });

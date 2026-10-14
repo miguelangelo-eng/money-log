@@ -263,12 +263,21 @@ export function createSync(deps: {
     const mudancas: Mudanca[] = [];
     for (const t of TABELAS_SYNC) {
       const ids = naFila.filter((x) => x.tabela === t).map((x) => x.row_id);
+      const daTabela: Mudanca[] = [];
       for (let i = 0; i < ids.length; i += 500) {
         const linhas = db.all<Linha>(
           sql`select * from ${sql.identifier(t)} where id in (${lista(ids.slice(i, i + 500))})`,
         );
-        for (const linha of linhas) mudancas.push({ tabela: t, linha: paraServidor(t, linha) });
+        for (const linha of linhas) daTabela.push({ tabela: t, linha: paraServidor(t, linha) });
       }
+      // id_externo é único no servidor, e o índice não espera o fim da
+      // transação. Reimportar move o id de uma linha excluída para uma nova:
+      // a que LARGA o id tem que chegar antes da que o pega, senão o lote
+      // inteiro é recusado (visto no aparelho, depois de "começar do zero").
+      if (t === 'transactions') {
+        daTabela.sort((a, b) => Number(a.linha.id_externo != null) - Number(b.linha.id_externo != null));
+      }
+      mudancas.push(...daTabela);
     }
 
     try {
